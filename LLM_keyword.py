@@ -1,4 +1,17 @@
+import subprocess
+import sys
 import streamlit as st
+
+# Function to install packages from requirements.txt
+def install_requirements():
+    subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-r', 'requirements.txt'])
+
+# Install requirements (you might want to comment this out after the first run)
+try:
+    install_requirements()
+except Exception as e:
+    st.error(f"Error installing requirements: {e}")
+
 import requests
 import pdfplumber
 import chardet
