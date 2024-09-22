@@ -1,3 +1,13 @@
+import subprocess
+import sys
+
+# Install required packages directly
+subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'pdfplumber'])
+subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'beautifulsoup4'])
+subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'requests'])
+subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'scikit-learn'])
+subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'chardet'])
+subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'numpy'])
 import streamlit as st
 import requests
 import pdfplumber
