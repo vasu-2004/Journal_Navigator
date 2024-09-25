@@ -6,7 +6,7 @@ import streamlit as st
 def install_requirements():
     subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-r', 'requirements.txt'])
 
-# Install requirements (you might want to comment this out after the first run)
+# Install requirements
 try:
     install_requirements()
 except Exception as e:
@@ -20,15 +20,24 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity, euclidean_distances
 import re
 import numpy as np
+from transformers import BertTokenizer, BertModel
+import torch
+from sklearn.metrics.pairwise import cosine_similarity
 
-# Hugging Face Inference API details
-API_URL = "https://api-inference.huggingface.co/models/google/flan-t5-base"
-headers = {"Authorization": f"Bearer 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"}
+tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+model = BertModel.from_pretrained('bert-base-uncased')
 
-# Function to query the Hugging Face API
-def query(payload):
-    response = requests.post(API_URL, headers=headers, json=payload)
-    return response.json()
+def get_bert_embeddings(text):
+    inputs = tokenizer(text, return_tensors='pt', padding=True, truncation=True)
+    with torch.no_grad():
+        outputs = model(**inputs)
+    return outputs.last_hidden_state.mean(dim=1).squeeze().numpy()
+
+def calculate_bert_similarity(text1, text2):
+    embedding1 = get_bert_embeddings(text1)
+    embedding2 = get_bert_embeddings(text2)
+    similarity = cosine_similarity([embedding1], [embedding2])[0][0] * 100  # Return percentage
+    return similarity
 
 # Function to read PDF file content
 def read_pdf(file):
@@ -116,6 +125,36 @@ def calculate_dice_coefficient(list1, list2):
     intersection = len(set1.intersection(set2))
     return 2 * intersection / (len(set1) + len(set2)) * 100 if (len(set1) + len(set2)) > 0 else 0
 
+# Function to calculate pairwise cosine similarity between words
+def calculate_word_cosine_similarity(list1, list2):
+    vectorizer = TfidfVectorizer().fit_transform(list1 + list2)
+    vectors = vectorizer.toarray()
+    similarities = []
+    
+    for word1_vector in vectors[:len(list1)]:
+        max_similarity = 0
+        for word2_vector in vectors[len(list1):]:
+            similarity = cosine_similarity([word1_vector], [word2_vector])[0][0]
+            max_similarity = max(max_similarity, similarity)  # Taking max similarity for each word
+        similarities.append(max_similarity)
+    
+    return np.mean(similarities) * 100  # Return average similarity percentage
+
+# Function to calculate pairwise Jaccard similarity between words
+def calculate_word_jaccard_similarity(list1, list2):
+    similarities = []
+    for word1 in list1:
+        max_similarity = 0
+        for word2 in list2:
+            set1, set2 = set(word1), set(word2)
+            intersection = len(set1.intersection(set2))
+            union = len(set1.union(set2))
+            jaccard_sim = intersection / union if union > 0 else 0
+            max_similarity = max(max_similarity, jaccard_sim)
+        similarities.append(max_similarity)
+    
+    return np.mean(similarities) * 100  # Return average similarity percentage
+
 # Streamlit interface
 st.title("Document Keyword Extractor and Similarity Checker")
 st.write("Extract top 10 unique keywords from two documents and compute the similarity between them.")
@@ -192,41 +231,44 @@ if document_text1 and document_text2:
     # Use TF-IDF for keyword extraction
     unique_keywords1 = extract_keywords_tfidf(document_text1)
     unique_keywords2 = extract_keywords_tfidf(document_text2)
+    
+    st.write("---")
+    st.subheader("Extracted Keywords:")
+    st.write("**Document 1 Keywords:**")
+    st.markdown("\n".join(f"- {keyword}" for keyword in unique_keywords1))
+    st.write("**Document 2 Keywords:**")
+    st.markdown("\n".join(f"- {keyword}" for keyword in unique_keywords2))
 
-    # Clean keywords to remove unwanted text
-    unique_keywords1 = clean_keywords(unique_keywords1)
-    unique_keywords2 = clean_keywords(unique_keywords2)
-
-    st.success("Keywords extracted successfully!")
-
-    st.write("### Extracted Unique Keywords for Document 1:")
-    for keyword in unique_keywords1:
-        st.write(f"- {keyword}")  # Bulleted list
-
-    st.write("### Extracted Unique Keywords for Document 2:")
-    for keyword in unique_keywords2:
-        st.write(f"- {keyword}")  # Bulleted list
-
-    # Calculate similarity using different methods
-    cosine_similarity_percentage = calculate_cosine_similarity(unique_keywords1, unique_keywords2)
-    jaccard_similarity_percentage = calculate_jaccard_similarity(unique_keywords1, unique_keywords2)
-    overlap_coefficient_percentage = calculate_overlap_coefficient(unique_keywords1, unique_keywords2)
-    euclidean_similarity_percentage = calculate_euclidean_similarity(unique_keywords1, unique_keywords2)
-    dice_coefficient_percentage = calculate_dice_coefficient(unique_keywords1, unique_keywords2)
-
+    
+    # Clean keywords
+    cleaned_keywords1 = clean_keywords(unique_keywords1)
+    cleaned_keywords2 = clean_keywords(unique_keywords2)
+    
+    # Calculate similarities
+    cosine_similarity_percentage = calculate_cosine_similarity(cleaned_keywords1, cleaned_keywords2)
+    jaccard_similarity_percentage = calculate_jaccard_similarity(cleaned_keywords1, cleaned_keywords2)
+    overlap_coefficient_percentage = calculate_overlap_coefficient(cleaned_keywords1, cleaned_keywords2)
+    euclidean_similarity_percentage = calculate_euclidean_similarity(cleaned_keywords1, cleaned_keywords2)
+    dice_coefficient_percentage = calculate_dice_coefficient(cleaned_keywords1, cleaned_keywords2)
+    calculate_word_jaccard_percentage=calculate_word_jaccard_similarity(cleaned_keywords1, cleaned_keywords2)
+    calculate_word_cosine_percentage=calculate_word_cosine_similarity(cleaned_keywords1, cleaned_keywords2)
+    bert_similarity_percentage = calculate_bert_similarity(document_text1, document_text2)
     # Display similarity percentages
     st.write("### SIMILARITY MEASURES:")
 
     def format_similarity_text(label, percentage):
         color = 'red' if percentage < 50 else 'lightgreen'
-        return f"<div style='font-size: 20px; color: white ; font-weight: bold;'>{label}: <span style='color:{color}; font-weight:bold; font-size:24px;'>{percentage:.2f}%</span></div>"
+        return f"<div style='font-size: 20px; color: white; font-weight: bold;'>{label}: <span style='color:{color}; font-weight:bold; font-size:24px;'>{percentage:.2f}%</span></div>"
 
+    
     st.markdown(format_similarity_text("COSINE SIMILARITY", cosine_similarity_percentage), unsafe_allow_html=True)
     st.markdown(format_similarity_text("JACCARD SIMILARITY", jaccard_similarity_percentage), unsafe_allow_html=True)
     st.markdown(format_similarity_text("OVERLAP COEFFICIENT", overlap_coefficient_percentage), unsafe_allow_html=True)
     st.markdown(format_similarity_text("EUCLIDEAN SIMILARITY", euclidean_similarity_percentage), unsafe_allow_html=True)
     st.markdown(format_similarity_text("DICE COEFFICIENT", dice_coefficient_percentage), unsafe_allow_html=True)
-
+    st.markdown(format_similarity_text("WORD COSINE SIMILARITY",calculate_word_cosine_percentage ), unsafe_allow_html=True)
+    st.markdown(format_similarity_text("WORD JACCARD SIMILARITY", calculate_word_jaccard_percentage), unsafe_allow_html=True)
+    st.markdown(format_similarity_text("BERT SIMILARITY", bert_similarity_percentage), unsafe_allow_html=True)
     # Display user preferences
     st.write("---")
     st.subheader("Your Preferences:")
