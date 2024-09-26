@@ -17,14 +17,14 @@ This project implements a keyword extraction tool designed for research papers, 
 Ensure you have the following dependencies in your `requirements.txt`:
 
 ```plaintext
-streamlit
-requests
 pdfplumber
 beautifulsoup4
-chardet
+requests
 scikit-learn
-langchain-groq
-langchain-community
-torch
+chardet
+numpy
 transformers
+torch
+langchain_groq
+python-dotenv
 ```

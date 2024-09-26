@@ -7,4 +7,4 @@ numpy
 transformers
 torch
 langchain_groq
-dotenv
+python-dotenv
