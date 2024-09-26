@@ -33,22 +33,32 @@ llm = ChatGroq(model="llama3-8b-8192",temperature=0)
 
 def extract_token_llama3(text):
     messages = [
-    (
-        "system",
-        "Extract a list of 15 to 20 important and relevant keywords from the following text. Provide the keywords only, separated by commas. Do not include any introductory phrases, stopwords (such as 'and', 'or', etc.), or additional explanations. You are Strictly prohibited from giving additional introductory and ending phrases just start from 1st keyword give commas and end at last keyword. "
-    ),
-    (text)
-]
+        {
+            "role": "system",
+            "content": (
+                "Give a strict comma-separated list of exactly 15 keywords from the following text. "
+                "Do not include any bullet points, introductory text, or ending text. "
+                "Do not say anything like 'Here are the keywords.' "
+                "Only return the keywords, strictly comma-separated, without any additional words."
+            )
+        },
+        {
+            "role": "user",
+            "content": text
+        }
+    ]
+    
     ai_msg = llm.invoke(messages)
     print(ai_msg)
-    return ai_msg.content.split(',')
+    keywords = ai_msg.content.split("keywords extracted from the text:\n")[-1].strip()
+    return keywords.split(',')
     
 def llm_similarity(list1, list2):
     # Create the messages with formatted strings for list1 and list2
     messages = [
         (
             "system",
-            f"Compare the similarity between the two lists of tokens provided: List 1 -> {', '.join(list1)}; List 2 -> {', '.join(list2)}. Provide only the similarity percentage as an integer, without any additional text, explanations, or special symbols."
+            f"Compare the similarity between the two lists of tokens provided where 1st list is of a research paper and the 2nd text is about the website that receives that research paper so on a scale of 0 to 100 how much is that research paper suitable for the website: List 1 -> {', '.join(list1)}; List 2 -> {', '.join(list2)}. Provide only the similarity percentage as an integer, without any additional text, explanations, or special symbols."
         ) # Placeholder for the second part of the input, not needed here
     ]
     
