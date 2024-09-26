@@ -6,3 +6,5 @@ chardet
 numpy
 transformers
 torch
+langchain_groq
+dotenv

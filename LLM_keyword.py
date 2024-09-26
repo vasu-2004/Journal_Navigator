@@ -1,7 +1,7 @@
 import subprocess
 import sys
 import streamlit as st
-
+import os
 # Function to install packages from requirements.txt
 def install_requirements():
     subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-r', 'requirements.txt'])
@@ -23,9 +23,27 @@ import numpy as np
 from transformers import BertTokenizer, BertModel
 import torch
 from sklearn.metrics.pairwise import cosine_similarity
-
+from langchain_groq import ChatGroq
+from dotenv import load_dotenv
+load_dotenv()
+os.environ["GROQ_API_KEY"] = os.getenv("GROQ_API_KEY")
 tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 model = BertModel.from_pretrained('bert-base-uncased')
+llm = ChatGroq(model="llama3-8b-8192")
+
+def extract_token_llama3(text):
+    messages = [
+    (
+        "system",
+        "You are a specialized token extractor designed to identify and extract the most relevant and significant keywords from the provided text. Ensure that the output is keywords only, free from any sentences, numbers, or special characters. The keywords should accurately reflect the main themes and concepts of the research paper and make sure not to give stopwords."
+    ),
+    ("Remove Stopwords"),
+    (text)
+]
+    ai_msg = llm.invoke(messages)
+    print(ai_msg)
+    return ai_msg.content.split()[5:]
+    
 
 def get_bert_embeddings(text):
     inputs = tokenizer(text, return_tensors='pt', padding=True, truncation=True)
@@ -229,8 +247,8 @@ else:  # URL option
 # Process and extract keywords if both document texts are available
 if document_text1 and document_text2:
     # Use TF-IDF for keyword extraction
-    unique_keywords1 = extract_keywords_tfidf(document_text1)
-    unique_keywords2 = extract_keywords_tfidf(document_text2)
+    unique_keywords1 = extract_token_llama3(document_text1)
+    unique_keywords2 = extract_token_llama3(document_text2)
     
     st.write("---")
     st.subheader("Extracted Keywords:")
