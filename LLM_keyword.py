@@ -29,22 +29,39 @@ load_dotenv()
 os.environ["GROQ_API_KEY"] = os.getenv("GROQ_API_KEY")
 tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 model = BertModel.from_pretrained('bert-base-uncased')
-llm = ChatGroq(model="llama3-8b-8192")
+llm = ChatGroq(model="llama3-8b-8192",temperature=0)
 
 def extract_token_llama3(text):
     messages = [
     (
         "system",
-        "You are a specialized token extractor designed to identify and extract the most relevant and significant keywords from the provided text. Ensure that the output is keywords only, free from any sentences, numbers, or special characters. The keywords should accurately reflect the main themes and concepts of the research paper and make sure not to give stopwords."
+        "Extract a list of 15 to 20 important and relevant keywords from the following text. Provide the keywords only, separated by commas. Do not include any introductory phrases, stopwords (such as 'and', 'or', etc.), or additional explanations. You are Strictly prohibited from giving additional introductory and ending phrases just start from 1st keyword give commas and end at last keyword. "
     ),
-    ("Remove Stopwords"),
     (text)
 ]
     ai_msg = llm.invoke(messages)
     print(ai_msg)
-    return ai_msg.content.split()[5:]
+    return ai_msg.content.split(',')
     
+def llm_similarity(list1, list2):
+    # Create the messages with formatted strings for list1 and list2
+    messages = [
+        (
+            "system",
+            f"Compare the similarity between the two lists of tokens provided: List 1 -> {', '.join(list1)}; List 2 -> {', '.join(list2)}. Provide only the similarity percentage as an integer, without any additional text, explanations, or special symbols."
+        ) # Placeholder for the second part of the input, not needed here
+    ]
+    
+    # Invoke the LLM with the prepared messages
+    ai_msg = llm.invoke(messages)
+    
+    # Output the similarity percentage
+    similarity_percentage = ai_msg.content.strip()  # Clean any leading/trailing whitespace
+    print(similarity_percentage)
+    st.text(similarity_percentage)
+    return similarity_percentage
 
+    
 def get_bert_embeddings(text):
     inputs = tokenizer(text, return_tensors='pt', padding=True, truncation=True)
     with torch.no_grad():
@@ -173,6 +190,7 @@ def calculate_word_jaccard_similarity(list1, list2):
     
     return np.mean(similarities) * 100  # Return average similarity percentage
 
+
 # Streamlit interface
 st.title("Document Keyword Extractor and Similarity Checker")
 st.write("Extract top 10 unique keywords from two documents and compute the similarity between them.")
@@ -271,6 +289,7 @@ if document_text1 and document_text2:
     calculate_word_jaccard_percentage=calculate_word_jaccard_similarity(cleaned_keywords1, cleaned_keywords2)
     calculate_word_cosine_percentage=calculate_word_cosine_similarity(cleaned_keywords1, cleaned_keywords2)
     bert_similarity_percentage = calculate_bert_similarity(document_text1, document_text2)
+    llm_sim_percentage=eval(llm_similarity(cleaned_keywords1,cleaned_keywords2))
     # Display similarity percentages
     st.write("### SIMILARITY MEASURES:")
 
@@ -287,6 +306,7 @@ if document_text1 and document_text2:
     st.markdown(format_similarity_text("WORD COSINE SIMILARITY",calculate_word_cosine_percentage ), unsafe_allow_html=True)
     st.markdown(format_similarity_text("WORD JACCARD SIMILARITY", calculate_word_jaccard_percentage), unsafe_allow_html=True)
     st.markdown(format_similarity_text("BERT SIMILARITY", bert_similarity_percentage), unsafe_allow_html=True)
+    st.markdown(format_similarity_text("LLM SIMILARITY", llm_sim_percentage), unsafe_allow_html=True)
     # Display user preferences
     st.write("---")
     st.subheader("Your Preferences:")
