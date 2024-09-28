@@ -27,8 +27,8 @@ from langchain_groq import ChatGroq
 from dotenv import load_dotenv
 load_dotenv()
 os.environ["GROQ_API_KEY"] = os.getenv("GROQ_API_KEY")
-tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-model = BertModel.from_pretrained('bert-base-uncased')
+# tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+# model = BertModel.from_pretrained('bert-base-uncased')
 llm = ChatGroq(model="llama3-8b-8192",temperature=0)
 
 def extract_token_llama3(text):
@@ -72,17 +72,17 @@ def llm_similarity(list1, list2):
     return similarity_percentage
 
     
-def get_bert_embeddings(text):
-    inputs = tokenizer(text, return_tensors='pt', padding=True, truncation=True)
-    with torch.no_grad():
-        outputs = model(**inputs)
-    return outputs.last_hidden_state.mean(dim=1).squeeze().numpy()
+# def get_bert_embeddings(text):
+#     inputs = tokenizer(text, return_tensors='pt', padding=True, truncation=True)
+#     with torch.no_grad():
+#         outputs = model(**inputs)
+#     return outputs.last_hidden_state.mean(dim=1).squeeze().numpy()
 
-def calculate_bert_similarity(text1, text2):
-    embedding1 = get_bert_embeddings(text1)
-    embedding2 = get_bert_embeddings(text2)
-    similarity = cosine_similarity([embedding1], [embedding2])[0][0] * 100  # Return percentage
-    return similarity
+# def calculate_bert_similarity(text1, text2):
+#     embedding1 = get_bert_embeddings(text1)
+#     embedding2 = get_bert_embeddings(text2)
+#     similarity = cosine_similarity([embedding1], [embedding2])[0][0] * 100  # Return percentage
+#     return similarity
 
 # Function to read PDF file content
 def read_pdf(file):
@@ -112,14 +112,6 @@ def scrape_url(url):
         st.write(f"Error scraping the URL: {e}")
         return ""
 
-# Function to extract keywords using TF-IDF
-def extract_keywords_tfidf(text, top_n=10):
-    vectorizer = TfidfVectorizer(stop_words='english')
-    tfidf_matrix = vectorizer.fit_transform([text])
-    feature_array = vectorizer.get_feature_names_out()
-    tfidf_sorting = tfidf_matrix.toarray().flatten().argsort()[::-1]
-    top_keywords = feature_array[tfidf_sorting][:top_n]
-    return top_keywords.tolist()
 
 # Function to clean extracted keywords
 def clean_keywords(keywords):
@@ -132,73 +124,60 @@ def clean_keywords(keywords):
             cleaned_keywords.append(keyword)
     return cleaned_keywords
 
-# Function to calculate cosine similarity
-def calculate_cosine_similarity(list1, list2):
-    vectorizer = TfidfVectorizer().fit_transform([' '.join(list1), ' '.join(list2)])
-    vectors = vectorizer.toarray()
-    cosine_sim = cosine_similarity(vectors)
-    return cosine_sim[0][1] * 100  # Return percentage
+# # Function to calculate cosine similarity
+# def calculate_cosine_similarity(list1, list2):
+#     vectorizer = TfidfVectorizer().fit_transform([' '.join(list1), ' '.join(list2)])
+#     vectors = vectorizer.toarray()
+#     cosine_sim = cosine_similarity(vectors)
+#     return cosine_sim[0][1] * 100  # Return percentage
 
-# Function to calculate Jaccard similarity
-def calculate_jaccard_similarity(list1, list2):
-    set1 = set(list1)
-    set2 = set(list2)
-    intersection = len(set1.intersection(set2))
-    union = len(set1.union(set2))
-    return intersection / union * 100 if union > 0 else 0
+# # Function to calculate Jaccard similarity
+# def calculate_jaccard_similarity(list1, list2):
+#     set1 = set(list1)
+#     set2 = set(list2)
+#     intersection = len(set1.intersection(set2))
+#     union = len(set1.union(set2))
+#     return intersection / union * 100 if union > 0 else 0
 
-# Function to calculate Overlap Coefficient
-def calculate_overlap_coefficient(list1, list2):
-    set1 = set(list1)
-    set2 = set(list2)
-    intersection = len(set1.intersection(set2))
-    return intersection / min(len(set1), len(set2)) * 100 if min(len(set1), len(set2)) > 0 else 0
 
-# Function to calculate Euclidean distance (as a similarity measure)
-def calculate_euclidean_similarity(list1, list2):
-    vectorizer = TfidfVectorizer().fit_transform([' '.join(list1), ' '.join(list2)])
-    vectors = vectorizer.toarray()
-    euclidean_distance = euclidean_distances(vectors)[0][1]
-    max_distance = np.sqrt(len(list1) + len(list2))  # Max possible distance
-    similarity = (1 - (euclidean_distance / max_distance)) * 100
-    return similarity
+# # Function to calculate Euclidean distance (as a similarity measure)
+# def calculate_euclidean_similarity(list1, list2):
+#     vectorizer = TfidfVectorizer().fit_transform([' '.join(list1), ' '.join(list2)])
+#     vectors = vectorizer.toarray()
+#     euclidean_distance = euclidean_distances(vectors)[0][1]
+#     max_distance = np.sqrt(len(list1) + len(list2))  # Max possible distance
+#     similarity = (1 - (euclidean_distance / max_distance)) * 100
+#     return similarity
 
-# Function to calculate Dice Coefficient
-def calculate_dice_coefficient(list1, list2):
-    set1 = set(list1)
-    set2 = set(list2)
-    intersection = len(set1.intersection(set2))
-    return 2 * intersection / (len(set1) + len(set2)) * 100 if (len(set1) + len(set2)) > 0 else 0
-
-# Function to calculate pairwise cosine similarity between words
-def calculate_word_cosine_similarity(list1, list2):
-    vectorizer = TfidfVectorizer().fit_transform(list1 + list2)
-    vectors = vectorizer.toarray()
-    similarities = []
+# # Function to calculate pairwise cosine similarity between words
+# def calculate_word_cosine_similarity(list1, list2):
+#     vectorizer = TfidfVectorizer().fit_transform(list1 + list2)
+#     vectors = vectorizer.toarray()
+#     similarities = []
     
-    for word1_vector in vectors[:len(list1)]:
-        max_similarity = 0
-        for word2_vector in vectors[len(list1):]:
-            similarity = cosine_similarity([word1_vector], [word2_vector])[0][0]
-            max_similarity = max(max_similarity, similarity)  # Taking max similarity for each word
-        similarities.append(max_similarity)
+#     for word1_vector in vectors[:len(list1)]:
+#         max_similarity = 0
+#         for word2_vector in vectors[len(list1):]:
+#             similarity = cosine_similarity([word1_vector], [word2_vector])[0][0]
+#             max_similarity = max(max_similarity, similarity)  # Taking max similarity for each word
+#         similarities.append(max_similarity)
     
-    return np.mean(similarities) * 100  # Return average similarity percentage
+#     return np.mean(similarities) * 100  # Return average similarity percentage
 
-# Function to calculate pairwise Jaccard similarity between words
-def calculate_word_jaccard_similarity(list1, list2):
-    similarities = []
-    for word1 in list1:
-        max_similarity = 0
-        for word2 in list2:
-            set1, set2 = set(word1), set(word2)
-            intersection = len(set1.intersection(set2))
-            union = len(set1.union(set2))
-            jaccard_sim = intersection / union if union > 0 else 0
-            max_similarity = max(max_similarity, jaccard_sim)
-        similarities.append(max_similarity)
+# # Function to calculate pairwise Jaccard similarity between words
+# def calculate_word_jaccard_similarity(list1, list2):
+#     similarities = []
+#     for word1 in list1:
+#         max_similarity = 0
+#         for word2 in list2:
+#             set1, set2 = set(word1), set(word2)
+#             intersection = len(set1.intersection(set2))
+#             union = len(set1.union(set2))
+#             jaccard_sim = intersection / union if union > 0 else 0
+#             max_similarity = max(max_similarity, jaccard_sim)
+#         similarities.append(max_similarity)
     
-    return np.mean(similarities) * 100  # Return average similarity percentage
+#     return np.mean(similarities) * 100  # Return average similarity percentage
 
 
 # Streamlit interface
@@ -234,13 +213,33 @@ else:  # URL option
             st.subheader("Scraped Content for Document 1:")
             st.write(document_text1[:10000] + "...")  # Display first 10000 characters
 
+
 # Preferences input after Document 1
 st.write("---")
 st.subheader("Research Paper Preferences")
 publisher_options = ["IEEE", "Springer", "Elsevier", "ACM", "Wiley"]
 selected_publishers = st.multiselect("Select preferred publishers:", publisher_options)
-h_index = st.number_input("Minimum H-index:", min_value=0, value=0)
-timeline_years = st.number_input("Timeline for publication (years):", min_value=0, value=1)
+
+# Impact Factor
+# Initialize impact factor variable
+impact_factor = 0.0  # Default value
+
+# Create a slider for impact factor
+impact_factor = st.slider(
+    "Select Minimum Impact Factor",
+    min_value=0.0,
+    max_value=500.0,
+    step=0.1,
+    value=impact_factor,  # Set initial value from the variable
+)
+
+# Display the current impact factor
+st.write("Current Impact Factor:", impact_factor)
+
+# Changed timeline to fixed intervals (6 months, 1 year, etc.)
+timeline_options = ["6 months", "1 year", "1.5 years", "2 years", "2.5 years", "3 years"]
+timeline_selection = st.selectbox("Timeline for publication:", timeline_options)
+
 
 # Input for Document 2
 st.write("---")
@@ -290,36 +289,19 @@ if document_text1 and document_text2:
     cleaned_keywords1 = clean_keywords(unique_keywords1)
     cleaned_keywords2 = clean_keywords(unique_keywords2)
     
-    # Calculate similarities
-    cosine_similarity_percentage = calculate_cosine_similarity(cleaned_keywords1, cleaned_keywords2)
-    jaccard_similarity_percentage = calculate_jaccard_similarity(cleaned_keywords1, cleaned_keywords2)
-    overlap_coefficient_percentage = calculate_overlap_coefficient(cleaned_keywords1, cleaned_keywords2)
-    euclidean_similarity_percentage = calculate_euclidean_similarity(cleaned_keywords1, cleaned_keywords2)
-    dice_coefficient_percentage = calculate_dice_coefficient(cleaned_keywords1, cleaned_keywords2)
-    calculate_word_jaccard_percentage=calculate_word_jaccard_similarity(cleaned_keywords1, cleaned_keywords2)
-    calculate_word_cosine_percentage=calculate_word_cosine_similarity(cleaned_keywords1, cleaned_keywords2)
-    bert_similarity_percentage = calculate_bert_similarity(document_text1, document_text2)
+    # Calculate similarity
     llm_sim_percentage=eval(llm_similarity(cleaned_keywords1,cleaned_keywords2))
-    # Display similarity percentages
-    st.write("### SIMILARITY MEASURES:")
+    # Display similarity percentage
+    st.write("### SIMILARITY MEASURE:")
 
     def format_similarity_text(label, percentage):
         color = 'red' if percentage < 50 else 'lightgreen'
         return f"<div style='font-size: 20px; color: white; font-weight: bold;'>{label}: <span style='color:{color}; font-weight:bold; font-size:24px;'>{percentage:.2f}%</span></div>"
 
-    
-    st.markdown(format_similarity_text("COSINE SIMILARITY", cosine_similarity_percentage), unsafe_allow_html=True)
-    st.markdown(format_similarity_text("JACCARD SIMILARITY", jaccard_similarity_percentage), unsafe_allow_html=True)
-    st.markdown(format_similarity_text("OVERLAP COEFFICIENT", overlap_coefficient_percentage), unsafe_allow_html=True)
-    st.markdown(format_similarity_text("EUCLIDEAN SIMILARITY", euclidean_similarity_percentage), unsafe_allow_html=True)
-    st.markdown(format_similarity_text("DICE COEFFICIENT", dice_coefficient_percentage), unsafe_allow_html=True)
-    st.markdown(format_similarity_text("WORD COSINE SIMILARITY",calculate_word_cosine_percentage ), unsafe_allow_html=True)
-    st.markdown(format_similarity_text("WORD JACCARD SIMILARITY", calculate_word_jaccard_percentage), unsafe_allow_html=True)
-    st.markdown(format_similarity_text("BERT SIMILARITY", bert_similarity_percentage), unsafe_allow_html=True)
     st.markdown(format_similarity_text("LLM SIMILARITY", llm_sim_percentage), unsafe_allow_html=True)
     # Display user preferences
     st.write("---")
     st.subheader("Your Preferences:")
     st.write(f"Preferred Publishers: {', '.join(selected_publishers) if selected_publishers else 'None'}")
-    st.write(f"Minimum H-index: {h_index}")
-    st.write(f"Timeline for publication: {timeline_years} years")
+    st.write(f"Minimum Impact Factor (IF): {impact_factor}")
+    st.write(f"Minimum Timeline for publication: {timeline_selection}")
