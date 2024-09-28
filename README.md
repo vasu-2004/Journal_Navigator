@@ -5,6 +5,8 @@ This project implements a keyword extraction tool designed for research papers, 
 # Get Your Api Key
 ```https://console.groq.com/docs/api-keys```
 
+# Add .env file
+```GROQ_API_KEY= <PASTE YOUR API KEY HERE>```
 
 ## Features
 
