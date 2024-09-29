@@ -179,7 +179,7 @@ def clean_keywords(keywords):
             max_similarity = max(max_similarity, jaccard_sim)
         similarities.append(max_similarity)
     
-    return np.mean(similarities) * 100  # Return average similarity percentage
+#     return np.mean(similarities) * 100  # Return average similarity percentage
 
 
 # Streamlit interface
@@ -214,6 +214,7 @@ else:  # URL option
         if document_text1:
             st.subheader("Scraped Content for Document 1:")
             st.write(document_text1[:10000] + "...")  # Display first 10000 characters
+
 
 # Preferences input after Document 1
 st.write("---")
