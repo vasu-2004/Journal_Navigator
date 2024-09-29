@@ -1,6 +1,6 @@
 # Journal Navigator
 
-This project implements a keyword extraction tool designed for research papers, allowing users to extract significant keywords and assess the similarity between your research paper and various journals based on preferences. The tool leverages the Groq API and Hugging Face embeddings for advanced keyword extraction and similarity calculations and giving the best fit for your research paper.
+This project implements a keyword extraction tool designed for research papers, allowing you to extract significant keywords and it assess the similarity between your research paper and various journals based on preferences and gives you the best Journal Recommendations. The tool leverages the Groq API and Hugging Face embeddings for advanced keyword extraction and similarity calculations and giving the best fit for your research paper.
 
 # Get Your Api Key
 ```https://console.groq.com/docs/api-keys```
