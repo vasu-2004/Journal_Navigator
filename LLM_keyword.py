@@ -24,13 +24,38 @@ from transformers import BertTokenizer, BertModel
 import torch
 from sklearn.metrics.pairwise import cosine_similarity
 from langchain_groq import ChatGroq
+from langchain_community.document_loaders import CSVLoader
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.vectorstores import FAISS
+from langchain.chains import ConversationalRetrievalChain
 from dotenv import load_dotenv
 load_dotenv()
 os.environ["GROQ_API_KEY"] = os.getenv("GROQ_API_KEY")
+DB_FAISS_PATH = 'vectorstore/db_faiss'
 tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 model = BertModel.from_pretrained('bert-base-uncased')
 llm = ChatGroq(model="llama3-8b-8192",temperature=0)
+db=""
+# Check if the vector store already exists
+# Check if the vector store already exists
+if os.path.exists(DB_FAISS_PATH):
+    print("Loading existing FAISS vector store.")
+    # Load the embeddings as before
+    embeddings = HuggingFaceEmbeddings(model_name='sentence-transformers/all-MiniLM-L6-v2', model_kwargs={'device': 'cpu'})
+    db = FAISS.load_local(DB_FAISS_PATH, embeddings, allow_dangerous_deserialization=True)
+else:
+    print("Creating new FAISS vector store.")
+    # Load data from the CSV file as before
+    loader = CSVLoader(file_path="Final_Research_Dataset.csv", encoding="utf-8", csv_args={'delimiter': ','})
+    data = loader.load()
+    
+    # Create embeddings and vector database
+    embeddings = HuggingFaceEmbeddings(model_name='sentence-transformers/all-MiniLM-L6-v2', model_kwargs={'device': 'cpu'})
+    db = FAISS.from_documents(data, embeddings)
+    db.save_local(DB_FAISS_PATH)
 
+
+chain = ConversationalRetrievalChain.from_llm(llm=llm, retriever=db.as_retriever())
 def extract_token_llama3(text):
     messages = [
         {
@@ -71,18 +96,15 @@ def llm_similarity(list1, list2):
     st.text(similarity_percentage)
     return similarity_percentage
 
+def final_res(list1,index_f,ts):
+    # Ensure that list1 is a list and handle the case where it's empty
     
-def get_bert_embeddings(text):
-    inputs = tokenizer(text, return_tensors='pt', padding=True, truncation=True)
-    with torch.no_grad():
-        outputs = model(**inputs)
-    return outputs.last_hidden_state.mean(dim=1).squeeze().numpy()
-
-def calculate_bert_similarity(text1, text2):
-    embedding1 = get_bert_embeddings(text1)
-    embedding2 = get_bert_embeddings(text2)
-    similarity = cosine_similarity([embedding1], [embedding2])[0][0] * 100  # Return percentage
-    return similarity
+    
+    query = f"You are a research paper journal recommender system. Given the following list of keywords, recommend a suitable journal for this research paper with their similarity percentage the preferred published timeline is {ts} and preferred impact factor is {index_f}. Keywords: {list1}" 
+    result = chain({"question": query, "chat_history": st.session_state.get('history', [])})
+   
+    return (result['answer'])
+    
 
 # Function to read PDF file content
 def read_pdf(file):
@@ -90,7 +112,7 @@ def read_pdf(file):
         text = ""
         for page in pdf.pages:
             text += page.extract_text() + "\n"
-    return text
+    return text[:6000]
 
 # Function to read text file content with encoding detection
 def read_text_file(file):
@@ -113,15 +135,11 @@ def scrape_url(url):
         return ""
 
 # Function to extract keywords using TF-IDF
-def extract_keywords_tfidf(text, top_n=10):
-    vectorizer = TfidfVectorizer(stop_words='english')
-    tfidf_matrix = vectorizer.fit_transform([text])
-    feature_array = vectorizer.get_feature_names_out()
-    tfidf_sorting = tfidf_matrix.toarray().flatten().argsort()[::-1]
-    top_keywords = feature_array[tfidf_sorting][:top_n]
-    return top_keywords.tolist()
+
 
 # Function to clean extracted keywords
+
+
 def clean_keywords(keywords):
     cleaned_keywords = []
     for keyword in keywords:
@@ -130,63 +148,26 @@ def clean_keywords(keywords):
         keyword = re.sub(r'\b\d{10,}\b', '', keyword)  # Remove phone numbers
         if keyword:  # Only add non-empty keywords
             cleaned_keywords.append(keyword)
-    return cleaned_keywords
+    
+    # Join the cleaned keywords into a single string, separated by commas
+    return ', '.join(cleaned_keywords)
+
 
 # Function to calculate cosine similarity
-def calculate_cosine_similarity(list1, list2):
-    vectorizer = TfidfVectorizer().fit_transform([' '.join(list1), ' '.join(list2)])
-    vectors = vectorizer.toarray()
-    cosine_sim = cosine_similarity(vectors)
-    return cosine_sim[0][1] * 100  # Return percentage
 
-# Function to calculate Jaccard similarity
-def calculate_jaccard_similarity(list1, list2):
-    set1 = set(list1)
-    set2 = set(list2)
-    intersection = len(set1.intersection(set2))
-    union = len(set1.union(set2))
-    return intersection / union * 100 if union > 0 else 0
 
-# Function to calculate Overlap Coefficient
-def calculate_overlap_coefficient(list1, list2):
-    set1 = set(list1)
-    set2 = set(list2)
-    intersection = len(set1.intersection(set2))
-    return intersection / min(len(set1), len(set2)) * 100 if min(len(set1), len(set2)) > 0 else 0
+
 
 # Function to calculate Euclidean distance (as a similarity measure)
-def calculate_euclidean_similarity(list1, list2):
-    vectorizer = TfidfVectorizer().fit_transform([' '.join(list1), ' '.join(list2)])
-    vectors = vectorizer.toarray()
-    euclidean_distance = euclidean_distances(vectors)[0][1]
-    max_distance = np.sqrt(len(list1) + len(list2))  # Max possible distance
-    similarity = (1 - (euclidean_distance / max_distance)) * 100
-    return similarity
 
-# Function to calculate Dice Coefficient
-def calculate_dice_coefficient(list1, list2):
-    set1 = set(list1)
-    set2 = set(list2)
-    intersection = len(set1.intersection(set2))
-    return 2 * intersection / (len(set1) + len(set2)) * 100 if (len(set1) + len(set2)) > 0 else 0
+
+
 
 # Function to calculate pairwise cosine similarity between words
-def calculate_word_cosine_similarity(list1, list2):
-    vectorizer = TfidfVectorizer().fit_transform(list1 + list2)
-    vectors = vectorizer.toarray()
-    similarities = []
-    
-    for word1_vector in vectors[:len(list1)]:
-        max_similarity = 0
-        for word2_vector in vectors[len(list1):]:
-            similarity = cosine_similarity([word1_vector], [word2_vector])[0][0]
-            max_similarity = max(max_similarity, similarity)  # Taking max similarity for each word
-        similarities.append(max_similarity)
-    
-    return np.mean(similarities) * 100  # Return average similarity percentage
+ # Return average similarity percentage
 
 # Function to calculate pairwise Jaccard similarity between words
-def calculate_word_jaccard_similarity(list1, list2):
+
     similarities = []
     for word1 in list1:
         max_similarity = 0
@@ -239,67 +220,50 @@ st.write("---")
 st.subheader("Research Paper Preferences")
 publisher_options = ["IEEE", "Springer", "Elsevier", "ACM", "Wiley"]
 selected_publishers = st.multiselect("Select preferred publishers:", publisher_options)
-h_index = st.number_input("Minimum H-index:", min_value=0, value=0)
-timeline_years = st.number_input("Timeline for publication (years):", min_value=0, value=1)
 
+# Impact Factor
+# Initialize impact factor variable
+impact_factor = 0.0  # Default value
+
+# Create a slider for impact factor
+impact_factor = st.slider(
+    "Select Minimum Impact Factor",
+    min_value=0.0,
+    max_value=500.0,
+    step=0.1,
+    value=impact_factor,  # Set initial value from the variable
+)
+
+# Display the current impact factor
+st.write("Current Impact Factor:", impact_factor)
+
+# Changed timeline to fixed intervals (6 months, 1 year, etc.)
+timeline_options = ["6 months", "1 year", "1.5 years", "2 years", "2.5 years", "3 years"]
+timeline_selection = st.selectbox("Timeline for publication:", timeline_options)
+# Checkbox to allow users to ignore preferences
+ignore_preferences = st.checkbox("Ignore impact factor and timeline preferences", value=False)
 # Input for Document 2
-st.write("---")
-input_option2 = st.radio("Choose input method for Document 2:", ("Upload a file", "Enter text directly", "Provide a URL"))
-document_text2 = ""
 
-if input_option2 == "Upload a file":
-    uploaded_file2 = st.file_uploader("Choose a second document", type=["txt", "pdf"], key="doc2")
-    if uploaded_file2 is not None:
-        try:
-            if uploaded_file2.type == "application/pdf":
-                document_text2 = read_pdf(uploaded_file2)
-            else:
-                document_text2 = read_text_file(uploaded_file2)
-            st.subheader("Document 2 Content:")
-            st.write(document_text2[:10000] + "...")  # Display first 10000 characters
-        except Exception as e:
-            st.write(f"Error reading the file: {e}")
-elif input_option2 == "Enter text directly":
-    document_text2 = st.text_area("Enter the text for Document 2:", "")
-    if document_text2:
-        st.subheader("Entered Text Content for Document 2:")
-        st.write(document_text2[:500] + "...")  # Display first 500 characters
-else:  # URL option
-    url2 = st.text_input("Enter the URL for Document 2:")
-    if url2:
-        document_text2 = scrape_url(url2)
-        if document_text2:
-            st.subheader("Scraped Content for Document 2:")
-            st.write(document_text2[:10000] + "...")  # Display first 10000 characters
+
+ # Display first 10000 characters
 
 # Process and extract keywords if both document texts are available
-if document_text1 and document_text2:
+if document_text1 :
     # Use TF-IDF for keyword extraction
     unique_keywords1 = extract_token_llama3(document_text1)
-    unique_keywords2 = extract_token_llama3(document_text2)
+    
     
     st.write("---")
     st.subheader("Extracted Keywords:")
     st.write("**Document 1 Keywords:**")
     st.markdown("\n".join(f"- {keyword}" for keyword in unique_keywords1))
-    st.write("**Document 2 Keywords:**")
-    st.markdown("\n".join(f"- {keyword}" for keyword in unique_keywords2))
-
+    
     
     # Clean keywords
     cleaned_keywords1 = clean_keywords(unique_keywords1)
-    cleaned_keywords2 = clean_keywords(unique_keywords2)
     
     # Calculate similarities
-    cosine_similarity_percentage = calculate_cosine_similarity(cleaned_keywords1, cleaned_keywords2)
-    jaccard_similarity_percentage = calculate_jaccard_similarity(cleaned_keywords1, cleaned_keywords2)
-    overlap_coefficient_percentage = calculate_overlap_coefficient(cleaned_keywords1, cleaned_keywords2)
-    euclidean_similarity_percentage = calculate_euclidean_similarity(cleaned_keywords1, cleaned_keywords2)
-    dice_coefficient_percentage = calculate_dice_coefficient(cleaned_keywords1, cleaned_keywords2)
-    calculate_word_jaccard_percentage=calculate_word_jaccard_similarity(cleaned_keywords1, cleaned_keywords2)
-    calculate_word_cosine_percentage=calculate_word_cosine_similarity(cleaned_keywords1, cleaned_keywords2)
-    bert_similarity_percentage = calculate_bert_similarity(document_text1, document_text2)
-    llm_sim_percentage=eval(llm_similarity(cleaned_keywords1,cleaned_keywords2))
+    
     # Display similarity percentages
     st.write("### SIMILARITY MEASURES:")
 
@@ -307,19 +271,11 @@ if document_text1 and document_text2:
         color = 'red' if percentage < 50 else 'lightgreen'
         return f"<div style='font-size: 20px; color: white; font-weight: bold;'>{label}: <span style='color:{color}; font-weight:bold; font-size:24px;'>{percentage:.2f}%</span></div>"
 
-    
-    st.markdown(format_similarity_text("COSINE SIMILARITY", cosine_similarity_percentage), unsafe_allow_html=True)
-    st.markdown(format_similarity_text("JACCARD SIMILARITY", jaccard_similarity_percentage), unsafe_allow_html=True)
-    st.markdown(format_similarity_text("OVERLAP COEFFICIENT", overlap_coefficient_percentage), unsafe_allow_html=True)
-    st.markdown(format_similarity_text("EUCLIDEAN SIMILARITY", euclidean_similarity_percentage), unsafe_allow_html=True)
-    st.markdown(format_similarity_text("DICE COEFFICIENT", dice_coefficient_percentage), unsafe_allow_html=True)
-    st.markdown(format_similarity_text("WORD COSINE SIMILARITY",calculate_word_cosine_percentage ), unsafe_allow_html=True)
-    st.markdown(format_similarity_text("WORD JACCARD SIMILARITY", calculate_word_jaccard_percentage), unsafe_allow_html=True)
-    st.markdown(format_similarity_text("BERT SIMILARITY", bert_similarity_percentage), unsafe_allow_html=True)
-    st.markdown(format_similarity_text("LLM SIMILARITY", llm_sim_percentage), unsafe_allow_html=True)
+
     # Display user preferences
-    st.write("---")
-    st.subheader("Your Preferences:")
-    st.write(f"Preferred Publishers: {', '.join(selected_publishers) if selected_publishers else 'None'}")
-    st.write(f"Minimum H-index: {h_index}")
-    st.write(f"Timeline for publication: {timeline_years} years")
+    
+    if ignore_preferences or (impact_factor > 0 and timeline_selection):
+        # Call the final_res function only if preferences are valid
+        st.markdown(final_res(cleaned_keywords1, impact_factor, timeline_selection))
+    else:
+        st.warning("Please set your preferences or choose to ignore them before proceeding.")
