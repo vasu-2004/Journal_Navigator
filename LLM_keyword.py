@@ -102,7 +102,8 @@ def final_res(list1, index_f, ts, publishers):
     recommend suitable journals for this 
     research paper with their similarity percentage the preferred publishers are {publishers} 
     and preferred timeline is {ts}
-    and preferred impact factor is {index_f} and  Give your output as a tablular format and no ending or beginning explainations . Keywords: {list1} """
+    and preferred impact factor is {index_f} and  Give your output as a tablular format with columns in the order
+     Journal Name, Publisher , JIF , Similarity Percentage, and Timeline . Dont keep any  ending or beginning explainations . Keywords: {list1} """
 
     # NON TABULAR FORMAT QUERY
 
