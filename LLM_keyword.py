@@ -35,7 +35,8 @@ os.environ["GROQ_API_KEY"] = os.getenv("GROQ_API_KEY")
 DB_FAISS_PATH = 'vectorstore/db_faiss'
 tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 model = BertModel.from_pretrained('bert-base-uncased')
-llm = ChatGroq(model="llama3-8b-8192",temperature=0)
+# llm = ChatGroq(model="llama3-8b-8192",temperature=0)
+llm = ChatGroq(model="llama-3.2-3b-preview",temperature=0)
 db=""
 # Check if the vector store already exists
 # Check if the vector store already exists
@@ -105,7 +106,7 @@ def final_res(list1, index_f, ts, publishers):
     recommend suitable journals for this 
     research paper with their similarity percentage the preferred publishers are {publishers} 
     and preferred timeline is {ts}
-    and minimum impact factor is {index_f} . Give your output as a tablular format with columns in the order
+    and minimum impact factor is {index_f} . Give your output as a tablular format sorted higher to lower similarity percentage with columns in the order
     Journal Name, Publisher , JIF , Similarity Percentage, and preferred Timeline.Avoid introductory phrases and just give explaination for choosing each recommendation Keywords: {list1} """
 
     # NON TABULAR FORMAT QUERY
@@ -226,8 +227,8 @@ selected_publishers = st.multiselect("Select preferred publishers:", publisher_o
 impact_factor = st.slider(
     "Select Minimum Impact Factor",
     min_value=0.0,
-    max_value=500.0,
-    step=0.1,
+    max_value=100.0,
+    step=0.05,
 )
 
 # Timeline selection
