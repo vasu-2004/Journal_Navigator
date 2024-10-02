@@ -17,3 +17,4 @@ langchain_text_splitters
 langchain-objectbox
 faiss-cpu
 sentence-transformers
+openai

@@ -2,9 +2,14 @@ import subprocess
 import sys
 import streamlit as st
 import os
+
+
 # Function to install packages from requirements.txt
 def install_requirements():
-    subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-r', 'requirements.txt'])
+    subprocess.check_call(
+        [sys.executable, "-m", "pip", "install", "-r", "requirements.txt"]
+    )
+
 
 # Install requirements
 try:
@@ -40,8 +45,16 @@ from dotenv import load_dotenv
 import asyncio
 import ast
 import nltk
-nltk.download('punkt')
+from openai import OpenAI
+
+api_key = "my_key"
+base_url = "https://api.aimlapi.com/v1"
+
+client = OpenAI(api_key="16115af94e9947ec862e93852dacaaf4", base_url="https://api.aimlapi.com/v1")
+nltk.download("punkt")
 load_dotenv()
+
+
 def get_or_create_event_loop():
     try:
         return asyncio.get_event_loop()
@@ -49,79 +62,100 @@ def get_or_create_event_loop():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         return loop
+
+
 os.environ["GROQ_API_KEY"] = os.getenv("GROQ_API_KEY")
-DB_FAISS_PATH = 'vectorstore/db_faiss'
-tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-model = BertModel.from_pretrained('bert-base-uncased')
-llm = ChatGroq(model="llama3-8b-8192",temperature=0)
+DB_FAISS_PATH = "vectorstore/db_faiss"
+tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
+model = BertModel.from_pretrained("bert-base-uncased")
+llm = ChatGroq(model="llama3-8b-8192", temperature=0)
 key = os.getenv("GOOGLE_API_KEY")
-db=""
+db = ""
 # Check if the vector store already exists
 # Check if the vector store already exists
 if os.path.exists(DB_FAISS_PATH):
     print("Loading existing FAISS vector store.")
     # Load the embeddings as before
-    embeddings = HuggingFaceEmbeddings(model_name='sentence-transformers/all-MiniLM-L6-v2', model_kwargs={'device': 'cpu'})
-    db = FAISS.load_local(DB_FAISS_PATH, embeddings, allow_dangerous_deserialization=True)
+    embeddings = HuggingFaceEmbeddings(
+        model_name="sentence-transformers/all-MiniLM-L6-v2",
+        model_kwargs={"device": "cpu"},
+    )
+    db = FAISS.load_local(
+        DB_FAISS_PATH, embeddings, allow_dangerous_deserialization=True
+    )
 else:
     print("Creating new FAISS vector store.")
     # Load data from the CSV file as before
-    loader = CSVLoader(file_path="Final_Research_Dataset.csv", encoding="utf-8", csv_args={'delimiter': ','})
+    loader = CSVLoader(
+        file_path="Final_Research_Dataset.csv",
+        encoding="utf-8",
+        csv_args={"delimiter": ","},
+    )
     data = loader.load()
-    
+
     # Create embeddings and vector database
-    embeddings = HuggingFaceEmbeddings(model_name='sentence-transformers/all-MiniLM-L6-v2', model_kwargs={'device': 'cpu'})
+    embeddings = HuggingFaceEmbeddings(
+        model_name="sentence-transformers/all-MiniLM-L6-v2",
+        model_kwargs={"device": "cpu"},
+    )
     db = FAISS.from_documents(data, embeddings)
     db.save_local(DB_FAISS_PATH)
-    
+
+
 def format_docs(docs):
     return "\n\n".join(doc.page_content for doc in docs)
 
 
-    
-
-#chain = ConversationalRetrievalChain.from_llm(llm=llm, retriever=db.as_retriever())
+# chain = ConversationalRetrievalChain.from_llm(llm=llm, retriever=db.as_retriever())
 def extract_token_llama3(text):
     messages = [
         {
             "role": "system",
             "content": (
-                "Give a strict comma-separated list of exactly 15 keywords from the following text. "
+                "Give a strict comma-separated list of exactly 7 keywords from the following text. "
                 "Do not include any bullet points, introductory text, or ending text. "
-                "No introductory or ending text strictly" # Added to ensure can be removed if results deteriorate
+                "No introductory or ending text strictly"  # Added to ensure can be removed if results deteriorate
                 "Do not say anything like 'Here are the keywords.' "
                 "Only return the keywords, strictly comma-separated, without any additional words."
-                
-            )
+            ),
         },
-        {
-            "role": "user",
-            "content": text
-        }
+        {"role": "user", "content": text},
     ]
-    
+
     ai_msg = llm.invoke(messages)
     print(ai_msg)
     keywords = ai_msg.content.split("keywords extracted from the text:\n")[-1].strip()
-    return keywords.split(',')
-    
+    return keywords.split(",")
+
+def openai_llm(keywords, jif, publisher):
+    completion = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": f"Recommend top journals in tabular format with keywords: {keywords}, publisher: {publisher}, JIF >= {jif}."}
+        ]
+    )
+    return completion.choices[0].message.content
+
 def llm_similarity(list1, list2):
     # Create the messages with formatted strings for list1 and list2
     messages = [
         (
             "system",
-            f"Compare the similarity between the two lists of tokens provided where 1st list is of a research paper and the 2nd text is about the website that receives that research paper so on a scale of 0 to 100 how much is that research paper suitable for the website: List 1 -> {', '.join(list1)}; List 2 -> {', '.join(list2)}. Provide only the similarity percentage as an integer, without any additional text, explanations, or special symbols."
-        ) # Placeholder for the second part of the input, not needed here
+            f"Compare the similarity between the two lists of tokens provided where 1st list is of a research paper and the 2nd text is about the website that receives that research paper so on a scale of 0 to 100 how much is that research paper suitable for the website: List 1 -> {', '.join(list1)}; List 2 -> {', '.join(list2)}. Provide only the similarity percentage as an integer, without any additional text, explanations, or special symbols.",
+        )  # Placeholder for the second part of the input, not needed here
     ]
-    
+
     # Invoke the LLM with the prepared messages
     ai_msg = llm.invoke(messages)
-    
+
     # Output the similarity percentage
-    similarity_percentage = ai_msg.content.strip()  # Clean any leading/trailing whitespace
+    similarity_percentage = (
+        ai_msg.content.strip()
+    )  # Clean any leading/trailing whitespace
     print(similarity_percentage)
     st.text(similarity_percentage)
     return similarity_percentage
+
 
 def final_res(list1, index_f, ts, publishers):
     query = f""" You are a research paper journal recommender system.
@@ -135,70 +169,92 @@ def final_res(list1, index_f, ts, publishers):
     # NON TABULAR FORMAT QUERY
 
     # query = f""" You are a research paper journal recommender system.
-    # Given the following list of keywords, 
-    # recommend suitable journals for this 
-    # research paper with their similarity percentage the preferred publishers are {publishers} 
+    # Given the following list of keywords,
+    # recommend suitable journals for this
+    # research paper with their similarity percentage the preferred publishers are {publishers}
     # and preferred timeline is {ts}
     # and preferred impact factor is {index_f} and show all info of that journal in bullets. Keywords: {list1} """
-    
-    result = chain({"question": query, "chat_history": st.session_state.get('history', [])})
-    return result['answer']
+
+    result = chain(
+        {"question": query, "chat_history": st.session_state.get("history", [])}
+    )
+    return result["answer"]
+
 
 def initialize_chat_model():
     try:
-        return ChatGoogleGenerativeAI(google_api_key=key, model="gemini-1.5-pro-exp-0827")
+        return ChatGoogleGenerativeAI(
+            google_api_key=key, model="gemini-1.5-pro-exp-0827",temperature=0.7
+        )
     except Exception as e:
         st.error(f"Error initializing ChatGoogleGenerativeAI: {e}")
         return None
-    
+
+
 async def gemini_res(list1, index_f, ts, publishers):
     chat_model = initialize_chat_model()
 
     if not chat_model:
         return "Failed to initialize model."
     # query = f""" You are a research paper journal recommender system.
-    # Given the following list of keywords, 
-    # recommend suitable journals for this 
-    # research paper with their similarity percentage the preferred publishers are {publishers} 
+    # Given the following list of keywords,
+    # recommend suitable journals for this
+    # research paper with their similarity percentage the preferred publishers are {publishers}
     # and preferred timeline is {ts}
     # and minimum impact factor is {index_f} . Give your output as a tablular format with columns in the order
     # Journal Name, Publisher , JIF , Similarity Percentage, and preferred Timeline.Avoid introductory phrases and just give explaination for choosing each recommendation Keywords: {list1} """
-    
-    
-    chat_template = ChatPromptTemplate.from_messages([
-    # System Message Prompt Template
-    SystemMessage(content="""You are a research paper journal recommender system.
-"""),
-    # Human Message Prompt Template
-    HumanMessagePromptTemplate.from_template("""Recommend suitable journals for this 
-    research paper in tabular format after that give explanation of each row.Given the following list of keywords,  JIF value and Preffered Publisher
-    you should answer based on the given context in decreasing order of JIF(show only results above specified JIF).
-    If no journals found do independent search and only show those results.
-    Context: {context}
-    Question: {question}
-    Answer: """)
-    ])
+
+    chat_template = ChatPromptTemplate.from_messages(
+        [
+            # System Message Prompt Template
+            SystemMessage(
+                content="""You are a research paper journal recommender system.
+"""
+            ),
+            # Human Message Prompt Template
+            HumanMessagePromptTemplate.from_template(
+                """## Find Suitable Journals for Research Paper (Strict Requirements with Independent Search)
+
+*Task:* Identify relevant journals for the following research paper based on the provided information. 
+
+1. *Prioritize journals that meet all specified requirements, **JIF Must be greater than specified* including the minimum Journal Impact Factor (JIF) and preferred publishers (if any). 
+2. *If no journals are found that meet all requirements*, perform an independent search using the provided research information (title, abstract, keywords, subject area) to identify potential journals that still adhere to the strict JIF and publisher criteria. 
+3. **No explanation or introductory phrases required
+4. **JIF Must be greater than specified
+5. *Publishers must be from the list only*
+*Output:* A table with the following columns: Journal Name, Publisher, JIF, Similarity (a qualitative or quantitative measure of how closely the journal's scope aligns with the research topic).
+                    Context: {context}
+                    Question: {question}
+                    Answer: """
+            ),
+        ]
+    )
     # NON TABULAR FORMAT QUERY
 
     # query = f""" You are a research paper journal recommender system.
-    # Given the following list of keywords, 
-    # recommend suitable journals for this 
-    # research paper with their similarity percentage the preferred publishers are {publishers} 
+    # Given the following list of keywords,
+    # recommend suitable journals for this
+    # research paper with their similarity percentage the preferred publishers are {publishers}
     # and preferred timeline is {ts}
     # and preferred impact factor is {index_f} and show all info of that journal in bullets. Keywords: {list1} """
     output_parser = StrOutputParser()
     rag_chain = (
-    {"context": db.as_retriever() , "question": RunnablePassthrough()}
-    | chat_template
-    | chat_model
-    | output_parser
+        {"context": db.as_retriever(), "question": RunnablePassthrough()}
+        | chat_template
+        | chat_model
+        | output_parser
     )
-    query = "Keywords: "+ list1 + " JIF value: "+  str(index_f) + " Preferred Publisher: "+ publishers
+    query = (
+        "Keywords: "
+        + list1
+        + " JIF value: "
+        + str(index_f)
+        + " Preferred Publisher: "
+        + publishers
+    )
 
     response = rag_chain.invoke(query)
-    return (response)
-    
-
+    return response
 
 
 # Function to read PDF file content
@@ -209,11 +265,12 @@ def read_pdf(file):
             text += page.extract_text() + "\n"
     return text[:6000]
 
+
 # Function to read text file content with encoding detection
 def read_text_file(file):
     raw_data = file.read()
     result = chardet.detect(raw_data)
-    encoding = result['encoding']
+    encoding = result["encoding"]
     return raw_data.decode(encoding)
 
 
@@ -224,15 +281,15 @@ def clean_keywords(keywords):
     cleaned_keywords = []
     for keyword in keywords:
         keyword = keyword.strip()
-        keyword = re.sub(r'\b\w+@\w+\.\w+\b', '', keyword)  # Remove email addresses
-        keyword = re.sub(r'\b\d{10,}\b', '', keyword)  # Remove phone numbers
+        keyword = re.sub(r"\b\w+@\w+\.\w+\b", "", keyword)  # Remove email addresses
+        keyword = re.sub(r"\b\d{10,}\b", "", keyword)  # Remove phone numbers
         if keyword:  # Only add non-empty keywords
             cleaned_keywords.append(keyword)
-    
+
     # Join the cleaned keywords into a single string, separated by commas
-    res=""
+    res = ""
     for i in cleaned_keywords:
-        res += i+","
+        res += i + ","
     return res
 
 
@@ -243,9 +300,8 @@ st.markdown(
     <h3 style='text-align: center; color: #ffffff;margin-bottom: 30px;'>Extracts The Best Fit for Your Research Paper</h3>
     <hr style='border: 1px solid #FFFFFF; margin: 20px 0;'>  <!-- Horizontal line -->
     """,
-    unsafe_allow_html=True
+    unsafe_allow_html=True,
 )
-
 
 
 # Input for Document
@@ -253,13 +309,15 @@ st.markdown(
 # Radio button input without extra space
 st.markdown(
     "<h5 style='text-align: left; font-weight: bold; margin: 0;'>Choose Input method for Document:</h5>",
-    unsafe_allow_html=True
+    unsafe_allow_html=True,
 )
 input_option1 = st.radio("", ("Upload a file", "Enter text directly"), index=0)
 document_text1 = ""
 
 if input_option1 == "Upload a file":
-    uploaded_file1 = st.file_uploader("Choose a document", type=["txt", "pdf"], key="doc1")
+    uploaded_file1 = st.file_uploader(
+        "Choose a document", type=["txt", "pdf"], key="doc1"
+    )
     if uploaded_file1 is not None:
         try:
             if uploaded_file1.type == "application/pdf":
@@ -280,29 +338,33 @@ st.markdown(
     """
     <hr style='border: 1px solid #FFFFFF; margin: 30px 0;'>  <!-- Horizontal line -->
     """,
-    unsafe_allow_html=True
+    unsafe_allow_html=True,
 )
 
 st.markdown(
     """
         <h4 style='text-align: left; font-weight: bold; color: #007bff;'>RESEARCH PAPER PREFERENCES</h3>
     """,
-    unsafe_allow_html=True
+    unsafe_allow_html=True,
 )
 
 
 # Publisher Preferences
 
+
 # Function to read and parse the list of publishers from a text file
 def load_publisher_names(file_path):
-    with open(file_path, 'r') as file:
+    with open(file_path, "r") as file:
         # Use ast.literal_eval to safely evaluate the list string
         publishers = ast.literal_eval(file.read())
     return publishers
 
+
 # Load publishers from the file
 publisher_options = load_publisher_names("Publishers.txt")
-selected_publishers = st.multiselect("Select preferred publishers:", publisher_options) or ["no preference"]
+selected_publishers = st.multiselect(
+    "Select preferred publishers:", publisher_options
+) or ["no preference"]
 
 # Impact Factor
 impact_factor = st.slider(
@@ -313,50 +375,68 @@ impact_factor = st.slider(
 )
 
 # Timeline selection
-timeline_options = ["No preference", "3 months", "6 months", "1 year", "1.5 years", "2 years", "2.5 years", "3 years"]
+timeline_options = [
+    "No preference",
+    "3 months",
+    "6 months",
+    "1 year",
+    "1.5 years",
+    "2 years",
+    "2.5 years",
+    "3 years",
+]
 timeline_selection = st.selectbox("Timeline for publication:", timeline_options)
 
 # Show Results Button
 if st.button("Show Results"):
     if document_text1:
-        
+
         unique_keywords1 = extract_token_llama3(document_text1)
-        
-        
+
         st.write("---")
         # st.subheader("Extracted Keywords:")
         st.markdown(
-    "<h3 style='text-align: left; color: #ff4b4b;'>Extracted Keywords</h3>",
-    unsafe_allow_html=True
-)
+            "<h3 style='text-align: left; color: #ff4b4b;'>Extracted Keywords</h3>",
+            unsafe_allow_html=True,
+        )
         # st.write("**Document Keywords:**")
         st.markdown("\n".join(f"- {keyword}" for keyword in unique_keywords1))
-        
-        
+
         # Clean keywords
         cleaned_keywords1 = clean_keywords(unique_keywords1)
-        
+
         st.markdown(
-    "<h3 style='text-align: left; color: #ff4b4b;'>RECOMMENDED JOURNALS</h3>",
-    unsafe_allow_html=True)
+            "<h3 style='text-align: left; color: #ff4b4b;'>RECOMMENDED JOURNALS</h3>",
+            unsafe_allow_html=True,
+        )
 
         def format_similarity_text(label, percentage):
-            color = 'red' if percentage < 50 else 'lightgreen'
+            color = "red" if percentage < 50 else "lightgreen"
             return f"<div style='font-size: 20px; color: white; font-weight: bold;'>{label}: <span style='color:{color}; font-weight:bold; font-size:24px;'>{percentage:.2f}%</span></div>"
 
-        loop = get_or_create_event_loop() 
+        loop = get_or_create_event_loop()
         # Ensure event loop exists
-        selected_publishers_str = ', '.join(selected_publishers)
-        response = loop.run_until_complete(gemini_res(cleaned_keywords1, impact_factor, timeline_selection, selected_publishers_str))
-        st.write(response)
+        selected_publishers_str = ", ".join(selected_publishers)
+        # response = loop.run_until_complete(
+        #     gemini_res(
+        #         cleaned_keywords1,
+        #         impact_factor,
+        #         timeline_selection,
+        #         selected_publishers_str,
+        #     )
+        # )
+        # st.write(response)
+        st.write(openai_llm(cleaned_keywords1,impact_factor,selected_publishers_str))
         # Display user preferences
     #     st.markdown(
     # final_res(
-    #     cleaned_keywords1, 
-    #     impact_factor, 
-    #     timeline_selection, 
+    #     cleaned_keywords1,
+    #     impact_factor,
+    #     timeline_selection,
     #     selected_publishers
     # )
-    #)
+    # )
 else:
-        st.warning("""1. If you have uploaded the document or entered the text Click on "Show Results" to get recommendations.\n2. If not Please upload a document or enter text to get recommendations.""")
+    st.warning(
+        """1. If you have uploaded the document or entered the text Click on "Show Results" to get recommendations.\n2. If not Please upload a document or enter text to get recommendations."""
+    )
