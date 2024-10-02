@@ -50,7 +50,7 @@ from openai import OpenAI
 api_key = "my_key"
 base_url = "https://api.aimlapi.com/v1"
 
-client = OpenAI(api_key="16115af94e9947ec862e93852dacaaf4", base_url="https://api.aimlapi.com/v1")
+client = OpenAI(api_key="", base_url="https://api.aimlapi.com/v1")
 nltk.download("punkt")
 load_dotenv()
 
