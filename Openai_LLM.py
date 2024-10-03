@@ -45,12 +45,13 @@ from dotenv import load_dotenv
 import asyncio
 import ast
 import nltk
+import google.generativeai as genai
 from openai import OpenAI
 
-api_key = "my_key"
-base_url = "https://api.aimlapi.com/v1"
+api_key = ""
 
-client = OpenAI(api_key="", base_url="https://api.aimlapi.com/v1")
+
+client = OpenAI(api_key=api_key)
 nltk.download("punkt")
 load_dotenv()
 
@@ -65,6 +66,7 @@ def get_or_create_event_loop():
 
 
 os.environ["GROQ_API_KEY"] = os.getenv("GROQ_API_KEY")
+genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
 DB_FAISS_PATH = "vectorstore/db_faiss"
 tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
 model = BertModel.from_pretrained("bert-base-uncased")
@@ -112,7 +114,7 @@ def extract_token_llama3(text):
         {
             "role": "system",
             "content": (
-                "Give a strict comma-separated list of exactly 7 keywords from the following text. "
+                "Give a strict comma-separated list of exactly 15 keywords from the following text. "
                 "Do not include any bullet points, introductory text, or ending text. "
                 "No introductory or ending text strictly"  # Added to ensure can be removed if results deteriorate
                 "Do not say anything like 'Here are the keywords.' "
@@ -127,15 +129,29 @@ def extract_token_llama3(text):
     keywords = ai_msg.content.split("keywords extracted from the text:\n")[-1].strip()
     return keywords.split(",")
 
-def openai_llm(keywords, jif, publisher):
+def openai_llm(keywords, jif, publisher,ts):
     completion = client.chat.completions.create(
         model="gpt-4o",
         messages=[
-            {"role": "system", "content": f"Recommend top journals in tabular format with keywords: {keywords}, publisher: {publisher}, JIF >= {jif}."}
+            {"role": "system", "content": f"Recommend appropriate journals in table having {keywords} keywords with greater than {jif} Journal impact factor in its website and consider {publisher} publishers and having maximum first decision time in days {ts}. Dont give any introductory or ending texts. Output table Format: Journal Name, Publisher, JIF, First Review Time, similarity(high,medium or low)"}
         ]
     )
     return completion.choices[0].message.content
 
+
+def gemini_ai(keywords, jif, publisher):
+    model = genai.GenerativeModel("gemini-1.5-pro-exp-0827")
+    # response = model.generate_content(f'''You are a research paper journal recommender system.
+    # Given the following list of keywords, 
+    # recommend suitable journals for this 
+    # research paper with their similarity percentage the required publishers are {publisher} 
+    # and minimum journal impact factor is {jif} . Give your output as a tablular format with columns in the order
+    # Journal Name, Publisher , JIF , Similarity Percentage, and preferred Timeline.Avoid introductory phrases and just give explaination for choosing each recommendation Keywords: {keywords}''')
+    response = model.generate_content(f'''Recommend most appropriate journals having {keywords} keywords
+                                       with greater than {jif} impact factor and consider {publisher} publishers only .
+                                       Display only a single table in output.
+                                         If no journals found show no journals found message and dont falseify info. No introductory or ending text only table ''')
+    return (response.text)
 def llm_similarity(list1, list2):
     # Create the messages with formatted strings for list1 and list2
     messages = [
@@ -184,7 +200,7 @@ def final_res(list1, index_f, ts, publishers):
 def initialize_chat_model():
     try:
         return ChatGoogleGenerativeAI(
-            google_api_key=key, model="gemini-1.5-pro-exp-0827",temperature=0.7
+            google_api_key=key, model="gemini-1.5-pro",temperature=0.7
         )
     except Exception as e:
         st.error(f"Error initializing ChatGoogleGenerativeAI: {e}")
@@ -208,21 +224,20 @@ async def gemini_res(list1, index_f, ts, publishers):
         [
             # System Message Prompt Template
             SystemMessage(
-                content="""You are a research paper journal recommender system.
+                content="""You are a research paper journal recommender system who only shows journals from publisher list and above a specified JIF( upto 1 decimal place) and based on similarity to keywords.And also you dont give any notes at the end
 """
             ),
             # Human Message Prompt Template
             HumanMessagePromptTemplate.from_template(
                 """## Find Suitable Journals for Research Paper (Strict Requirements with Independent Search)
+                    Impact factor only upto 1 decimal place
+                    *Task:* Show only a table of relevant journals based on similarity to keywords and strict requirements :
+                    1. Most strict requirement - **Publishers must be from the list only none others are accepted**If any other bublishers journal shown its very bad
+                    2. Most Strict Requirement - **Journal Impact Fcator Must be greater than specified JIF**
 
-*Task:* Identify relevant journals for the following research paper based on the provided information. 
-
-1. *Prioritize journals that meet all specified requirements, **JIF Must be greater than specified* including the minimum Journal Impact Factor (JIF) and preferred publishers (if any). 
-2. *If no journals are found that meet all requirements*, perform an independent search using the provided research information (title, abstract, keywords, subject area) to identify potential journals that still adhere to the strict JIF and publisher criteria. 
-3. **No explanation or introductory phrases required
-4. **JIF Must be greater than specified
-5. *Publishers must be from the list only*
-*Output:* A table with the following columns: Journal Name, Publisher, JIF, Similarity (a qualitative or quantitative measure of how closely the journal's scope aligns with the research topic).
+                    3. **Only show journals that meet all specified requirements, **JIF Must be greater than specified* including the minimum Journal Impact Factor (JIF) and preferred publishers (if any).  
+                    4. **No explanation or "Notes" or introductory phrases or ending phrases required**
+                    *Output:* A table with the following columns: Journal Name, Publisher, JIF(upto 1 decimal), Similarity (a qualitative or quantitative measure of how closely the journal's scope aligns with the research topic).
                     Context: {context}
                     Question: {question}
                     Answer: """
@@ -375,17 +390,10 @@ impact_factor = st.slider(
 )
 
 # Timeline selection
-timeline_options = [
-    "No preference",
-    "3 months",
-    "6 months",
-    "1 year",
-    "1.5 years",
-    "2 years",
-    "2.5 years",
-    "3 years",
-]
-timeline_selection = st.selectbox("Timeline for publication:", timeline_options)
+timeline_selection = st.text_input(
+    "Select Maximum First Decision Time (Days)"
+)
+
 
 # Show Results Button
 if st.button("Show Results"):
@@ -393,14 +401,14 @@ if st.button("Show Results"):
 
         unique_keywords1 = extract_token_llama3(document_text1)
 
-        st.write("---")
-        # st.subheader("Extracted Keywords:")
-        st.markdown(
-            "<h3 style='text-align: left; color: #ff4b4b;'>Extracted Keywords</h3>",
-            unsafe_allow_html=True,
-        )
-        # st.write("**Document Keywords:**")
-        st.markdown("\n".join(f"- {keyword}" for keyword in unique_keywords1))
+        # st.write("---")
+        # # st.subheader("Extracted Keywords:")
+        # st.markdown(
+        #     "<h3 style='text-align: left; color: #ff4b4b;'>Extracted Keywords</h3>",
+        #     unsafe_allow_html=True,
+        # )
+        # # st.write("**Document Keywords:**")
+        # st.markdown("\n".join(f"- {keyword}" for keyword in unique_keywords1))
 
         # Clean keywords
         cleaned_keywords1 = clean_keywords(unique_keywords1)
@@ -426,7 +434,7 @@ if st.button("Show Results"):
         #     )
         # )
         # st.write(response)
-        st.write(openai_llm(cleaned_keywords1,impact_factor,selected_publishers_str))
+        st.write(openai_llm(cleaned_keywords1,impact_factor,selected_publishers_str,timeline_selection))
         # Display user preferences
     #     st.markdown(
     # final_res(
