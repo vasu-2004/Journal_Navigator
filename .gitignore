@@ -1,1 +1,4 @@
 .env
+openai/
+openai3/
+__pycache__/

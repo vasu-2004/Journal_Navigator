@@ -20,23 +20,30 @@ except Exception as e:
 import requests
 import pdfplumber
 import chardet
+import pandas as pd
 from bs4 import BeautifulSoup
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity, euclidean_distances
 import re
 import numpy as np
-from transformers import BertTokenizer, BertModel
+
 import torch
 from sklearn.metrics.pairwise import cosine_similarity
 from langchain_groq import ChatGroq
 from langchain_community.document_loaders import CSVLoader
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
+import faiss
 from langchain_community.vectorstores import Chroma
+from langchain_community.docstore.in_memory import InMemoryDocstore
 from langchain.chains import ConversationalRetrievalChain
 from langchain_text_splitters import NLTKTextSplitter
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain.chains import create_retrieval_chain
+from langchain.chains.combine_documents import create_stuff_documents_chain
+from pathlib import Path
+from langchain_openai import ChatOpenAI,OpenAIEmbeddings
 from langchain_core.messages import SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
 from langchain_core.output_parsers import StrOutputParser
@@ -48,10 +55,12 @@ import nltk
 import google.generativeai as genai
 from openai import OpenAI
 
-api_key = ""
 
 
-client = OpenAI(api_key=api_key)
+api_key = "my_key"
+# base_url = "https://api.aimlapi.com/v1"
+
+# client = OpenAI(api_key="", base_url="https://api.aimlapi.com/v1")
 nltk.download("punkt")
 load_dotenv()
 
@@ -68,24 +77,31 @@ def get_or_create_event_loop():
 os.environ["GROQ_API_KEY"] = os.getenv("GROQ_API_KEY")
 genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
 DB_FAISS_PATH = "vectorstore/db_faiss"
-tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
-model = BertModel.from_pretrained("bert-base-uncased")
+DB_Path = "openai3/db_faiss"
+os.environ["OPENAI_API_KEY"] = os.getenv('OPENAI_API_KEY')
+
+model = ChatOpenAI(model="gpt-4")
 llm = ChatGroq(model="llama3-8b-8192", temperature=0)
 key = os.getenv("GOOGLE_API_KEY")
 db = ""
 # Check if the vector store already exists
-# Check if the vector store already exists
-if os.path.exists(DB_FAISS_PATH):
+if os.path.exists(DB_Path):
     print("Loading existing FAISS vector store.")
     # Load the embeddings as before
-    embeddings = HuggingFaceEmbeddings(
-        model_name="sentence-transformers/all-MiniLM-L6-v2",
-        model_kwargs={"device": "cpu"},
-    )
-    db = FAISS.load_local(
-        DB_FAISS_PATH, embeddings, allow_dangerous_deserialization=True
-    )
+    embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
+    db = FAISS.load_local(DB_Path, embeddings, allow_dangerous_deserialization=True)
 else:
+    print("Creating new FAISS vector store.")
+    # Load data from the CSV file as before
+    loader = CSVLoader(file_path="Final_Research_Dataset.csv", encoding="utf-8", csv_args={'delimiter': ','})
+    data = loader.load_and_split()
+    
+    # Create embeddings and vector database
+    embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
+    db = FAISS.from_documents(data, embeddings)
+    db.save_local(DB_Path)
+# Check if the vector store already exists
+
     print("Creating new FAISS vector store.")
     # Load data from the CSV file as before
     loader = CSVLoader(
@@ -93,15 +109,19 @@ else:
         encoding="utf-8",
         csv_args={"delimiter": ","},
     )
-    data = loader.load()
+    docs = loader.load_and_split()
 
     # Create embeddings and vector database
-    embeddings = HuggingFaceEmbeddings(
-        model_name="sentence-transformers/all-MiniLM-L6-v2",
-        model_kwargs={"device": "cpu"},
+    embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
+    index = faiss.IndexFlatL2(len(OpenAIEmbeddings().embed_query(" ")))
+    db = FAISS(
+        embedding_function=OpenAIEmbeddings(),
+        index=index,
+        docstore=InMemoryDocstore(),
+        index_to_docstore_id={}
     )
-    db = FAISS.from_documents(data, embeddings)
-    db.save_local(DB_FAISS_PATH)
+    db.add_documents(documents=docs)
+    db.save_local(DB_Path)
 
 
 def format_docs(docs):
@@ -114,6 +134,7 @@ def extract_token_llama3(text):
         {
             "role": "system",
             "content": (
+                "Give a strict comma-separated list of exactly 15 keywords from the following text. "
                 "Give a strict comma-separated list of exactly 15 keywords from the following text. "
                 "Do not include any bullet points, introductory text, or ending text. "
                 "No introductory or ending text strictly"  # Added to ensure can be removed if results deteriorate
@@ -129,147 +150,40 @@ def extract_token_llama3(text):
     keywords = ai_msg.content.split("keywords extracted from the text:\n")[-1].strip()
     return keywords.split(",")
 
-def openai_llm(keywords, jif, publisher,ts):
-    completion = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[
-            {"role": "system", "content": f"Recommend appropriate journals in table having {keywords} keywords with greater than {jif} Journal impact factor in its website and consider {publisher} publishers and having maximum first decision time in days {ts}. Dont give any introductory or ending texts. Output table Format: Journal Name, Publisher, JIF, First Review Time, similarity(high,medium or low)"}
-        ]
-    )
-    return completion.choices[0].message.content
+def openai_llm(keywords, jif, publisher):
+    retriever = db.as_retriever()
 
-
-def gemini_ai(keywords, jif, publisher):
-    model = genai.GenerativeModel("gemini-1.5-pro-exp-0827")
-    # response = model.generate_content(f'''You are a research paper journal recommender system.
-    # Given the following list of keywords, 
-    # recommend suitable journals for this 
-    # research paper with their similarity percentage the required publishers are {publisher} 
-    # and minimum journal impact factor is {jif} . Give your output as a tablular format with columns in the order
-    # Journal Name, Publisher , JIF , Similarity Percentage, and preferred Timeline.Avoid introductory phrases and just give explaination for choosing each recommendation Keywords: {keywords}''')
-    response = model.generate_content(f'''Recommend most appropriate journals having {keywords} keywords
-                                       with greater than {jif} impact factor and consider {publisher} publishers only .
-                                       Display only a single table in output.
-                                         If no journals found show no journals found message and dont falseify info. No introductory or ending text only table ''')
-    return (response.text)
-def llm_similarity(list1, list2):
-    # Create the messages with formatted strings for list1 and list2
-    messages = [
-        (
-            "system",
-            f"Compare the similarity between the two lists of tokens provided where 1st list is of a research paper and the 2nd text is about the website that receives that research paper so on a scale of 0 to 100 how much is that research paper suitable for the website: List 1 -> {', '.join(list1)}; List 2 -> {', '.join(list2)}. Provide only the similarity percentage as an integer, without any additional text, explanations, or special symbols.",
-        )  # Placeholder for the second part of the input, not needed here
-    ]
-
-    # Invoke the LLM with the prepared messages
-    ai_msg = llm.invoke(messages)
-
-    # Output the similarity percentage
-    similarity_percentage = (
-        ai_msg.content.strip()
-    )  # Clean any leading/trailing whitespace
-    print(similarity_percentage)
-    st.text(similarity_percentage)
-    return similarity_percentage
-
-
-def final_res(list1, index_f, ts, publishers):
-    query = f""" You are a research paper journal recommender system.
-    Given the following list of keywords, 
-    recommend suitable journals for this 
-    research paper with their similarity percentage the preferred publishers are {publishers} 
-    and preferred timeline is {ts}
-    and minimum impact factor is {index_f} . Give your output as a tablular format with columns in the order
-    Journal Name, Publisher , JIF , Similarity Percentage, and preferred Timeline.Avoid introductory phrases and just give explaination for choosing each recommendation Keywords: {list1} """
-
-    # NON TABULAR FORMAT QUERY
-
-    # query = f""" You are a research paper journal recommender system.
-    # Given the following list of keywords,
-    # recommend suitable journals for this
-    # research paper with their similarity percentage the preferred publishers are {publishers}
-    # and preferred timeline is {ts}
-    # and preferred impact factor is {index_f} and show all info of that journal in bullets. Keywords: {list1} """
-
-    result = chain(
-        {"question": query, "chat_history": st.session_state.get("history", [])}
-    )
-    return result["answer"]
-
-
-def initialize_chat_model():
-    try:
-        return ChatGoogleGenerativeAI(
-            google_api_key=key, model="gemini-1.5-pro",temperature=0.7
-        )
-    except Exception as e:
-        st.error(f"Error initializing ChatGoogleGenerativeAI: {e}")
-        return None
-
-
-async def gemini_res(list1, index_f, ts, publishers):
-    chat_model = initialize_chat_model()
-
-    if not chat_model:
-        return "Failed to initialize model."
-    # query = f""" You are a research paper journal recommender system.
-    # Given the following list of keywords,
-    # recommend suitable journals for this
-    # research paper with their similarity percentage the preferred publishers are {publishers}
-    # and preferred timeline is {ts}
-    # and minimum impact factor is {index_f} . Give your output as a tablular format with columns in the order
-    # Journal Name, Publisher , JIF , Similarity Percentage, and preferred Timeline.Avoid introductory phrases and just give explaination for choosing each recommendation Keywords: {list1} """
-
-    chat_template = ChatPromptTemplate.from_messages(
-        [
-            # System Message Prompt Template
-            SystemMessage(
-                content="""You are a research paper journal recommender system who only shows journals from publisher list and above a specified JIF( upto 1 decimal place) and based on similarity to keywords.And also you dont give any notes at the end
-"""
-            ),
-            # Human Message Prompt Template
-            HumanMessagePromptTemplate.from_template(
-                """## Find Suitable Journals for Research Paper (Strict Requirements with Independent Search)
-                    Impact factor only upto 1 decimal place
-                    *Task:* Show only a table of relevant journals based on similarity to keywords and strict requirements :
-                    1. Most strict requirement - **Publishers must be from the list only none others are accepted**If any other bublishers journal shown its very bad
-                    2. Most Strict Requirement - **Journal Impact Fcator Must be greater than specified JIF**
-
-                    3. **Only show journals that meet all specified requirements, **JIF Must be greater than specified* including the minimum Journal Impact Factor (JIF) and preferred publishers (if any).  
-                    4. **No explanation or "Notes" or introductory phrases or ending phrases required**
-                    *Output:* A table with the following columns: Journal Name, Publisher, JIF(upto 1 decimal), Similarity (a qualitative or quantitative measure of how closely the journal's scope aligns with the research topic).
-                    Context: {context}
-                    Question: {question}
-                    Answer: """
-            ),
-        ]
-    )
-    # NON TABULAR FORMAT QUERY
-
-    # query = f""" You are a research paper journal recommender system.
-    # Given the following list of keywords,
-    # recommend suitable journals for this
-    # research paper with their similarity percentage the preferred publishers are {publishers}
-    # and preferred timeline is {ts}
-    # and preferred impact factor is {index_f} and show all info of that journal in bullets. Keywords: {list1} """
-    output_parser = StrOutputParser()
-    rag_chain = (
-        {"context": db.as_retriever(), "question": RunnablePassthrough()}
-        | chat_template
-        | chat_model
-        | output_parser
-    )
-    query = (
-        "Keywords: "
-        + list1
-        + " JIF value: "
-        + str(index_f)
-        + " Preferred Publisher: "
-        + publishers
+    # Set up system prompt
+    system_prompt = (
+        "You are AI journal recommender system. Given keywords of a researh paper "
+        "Use the following pieces of retrieved context to give "
+        "response in tabular format with columns in the order Journal Name, Publisher, JIF, Similarity Percentage, and preferred Timeline. "
+        f"You should answer based on the given context in decreasing order of JIF(show only results above JIF {jif} and from publishers {publisher})."
+        "If no journals found do independent search and only show those results."
+        "Avoid giving introductory texts and ending explanations"
+        "\n\n"
+        "{context}"
     )
 
-    response = rag_chain.invoke(query)
-    return response
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", system_prompt),
+        ("user", "{input}"),
+    ])
+
+    # Create the question-answer chain
+    question_answer_chain = create_stuff_documents_chain(model, prompt)
+    rag_chain = create_retrieval_chain(retriever, question_answer_chain)
+
+    
+    
+    # Ensure the vector dimensions match the FAISS index
+    
+
+    # Invoke the RAG chain
+    answer = rag_chain.invoke({"input": f"Keywords: {keywords}, Minimum JIF: {jif},Required Publisher Publisher: {publisher}"})
+
+    # Inspect the result structure
+    return answer['answer']
 
 
 # Function to read PDF file content
@@ -418,10 +332,368 @@ if st.button("Show Results"):
             unsafe_allow_html=True,
         )
 
-        def format_similarity_text(label, percentage):
-            color = "red" if percentage < 50 else "lightgreen"
-            return f"<div style='font-size: 20px; color: white; font-weight: bold;'>{label}: <span style='color:{color}; font-weight:bold; font-size:24px;'>{percentage:.2f}%</span></div>"
+           
+        loop = get_or_create_event_loop()
+        # Ensure event loop exists
+        selected_publishers_str = ", ".join(selected_publishers)
+        # response = loop.run_until_complete(
+        #     gemini_res(
+        #         cleaned_keywords1,
+        #         impact_factor,
+        #         timeline_selection,
+        #         selected_publishers_str,
+        #     )
+        # )
+        # st.write(response)
+        st.write(openai_llm(cleaned_keywords1,impact_factor,selected_publishers_str,timeline_selection))
+        # Display user preferences
+    #     st.markdown(
+    # final_res(
+    #     cleaned_keywords1,
+    #     impact_factor,
+    #     timeline_selection,
+    #     selected_publishers
+    # )
+    # )
+else:
+    st.warning(
+        """1. If you have uploaded the document or entered the text Click on "Show Results" to get recommendations.\n2. If not Please upload a document or enter text to get recommendations."""
+    )
+import subprocess
+import sys
+import streamlit as st
+import os
 
+
+# Function to install packages from requirements.txt
+def install_requirements():
+    subprocess.check_call(
+        [sys.executable, "-m", "pip", "install", "-r", "requirements.txt"]
+    )
+
+
+# Install requirements
+try:
+    install_requirements()
+except Exception as e:
+    st.error(f"Error installing requirements: {e}")
+
+import requests
+import pdfplumber
+import chardet
+import pandas as pd
+from bs4 import BeautifulSoup
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity, euclidean_distances
+import re
+import numpy as np
+
+import torch
+from sklearn.metrics.pairwise import cosine_similarity
+from langchain_groq import ChatGroq
+from langchain_community.document_loaders import CSVLoader
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.vectorstores import FAISS
+import faiss
+from langchain_community.vectorstores import Chroma
+from langchain_community.docstore.in_memory import InMemoryDocstore
+from langchain.chains import ConversationalRetrievalChain
+from langchain_text_splitters import NLTKTextSplitter
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain.chains import create_retrieval_chain
+from langchain.chains.combine_documents import create_stuff_documents_chain
+from pathlib import Path
+from langchain_openai import ChatOpenAI,OpenAIEmbeddings
+from langchain_core.messages import SystemMessage
+from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnablePassthrough
+from dotenv import load_dotenv
+import asyncio
+import ast
+import nltk
+import google.generativeai as genai
+from openai import OpenAI
+
+
+
+api_key = "my_key"
+# base_url = "https://api.aimlapi.com/v1"
+
+# client = OpenAI(api_key="", base_url="https://api.aimlapi.com/v1")
+nltk.download("punkt")
+load_dotenv()
+
+
+def get_or_create_event_loop():
+    try:
+        return asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        return loop
+
+
+os.environ["GROQ_API_KEY"] = os.getenv("GROQ_API_KEY")
+genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
+DB_FAISS_PATH = "vectorstore/db_faiss"
+DB_Path = "openai3/db_faiss"
+os.environ["OPENAI_API_KEY"] = os.getenv('OPENAI_API_KEY')
+
+model = ChatOpenAI(model="gpt-4")
+llm = ChatGroq(model="llama3-8b-8192", temperature=0)
+key = os.getenv("GOOGLE_API_KEY")
+db = ""
+# Check if the vector store already exists
+if os.path.exists(DB_Path):
+    print("Loading existing FAISS vector store.")
+    # Load the embeddings as before
+    embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
+    db = FAISS.load_local(DB_Path, embeddings, allow_dangerous_deserialization=True)
+else:
+    print("Creating new FAISS vector store.")
+    # Load data from the CSV file as before
+    loader = CSVLoader(file_path="Final_Research_Dataset.csv", encoding="utf-8", csv_args={'delimiter': ','})
+    data = loader.load_and_split()
+    
+    # Create embeddings and vector database
+    embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
+    db = FAISS.from_documents(data, embeddings)
+    db.save_local(DB_Path)
+# Check if the vector store already exists
+
+    print("Creating new FAISS vector store.")
+    # Load data from the CSV file as before
+    loader = CSVLoader(
+        file_path="Final_Research_Dataset.csv",
+        encoding="utf-8",
+        csv_args={"delimiter": ","},
+    )
+    docs = loader.load_and_split()
+
+    # Create embeddings and vector database
+    embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
+    index = faiss.IndexFlatL2(len(OpenAIEmbeddings().embed_query(" ")))
+    db = FAISS(
+        embedding_function=OpenAIEmbeddings(),
+        index=index,
+        docstore=InMemoryDocstore(),
+        index_to_docstore_id={}
+    )
+    db.add_documents(documents=docs)
+    db.save_local(DB_Path)
+
+
+def format_docs(docs):
+    return "\n\n".join(doc.page_content for doc in docs)
+
+
+# chain = ConversationalRetrievalChain.from_llm(llm=llm, retriever=db.as_retriever())
+def extract_token_llama3(text):
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "Give a strict comma-separated list of exactly 15 keywords from the following text. "
+                "Give a strict comma-separated list of exactly 15 keywords from the following text. "
+                "Do not include any bullet points, introductory text, or ending text. "
+                "No introductory or ending text strictly"  # Added to ensure can be removed if results deteriorate
+                "Do not say anything like 'Here are the keywords.' "
+                "Only return the keywords, strictly comma-separated, without any additional words."
+            ),
+        },
+        {"role": "user", "content": text},
+    ]
+
+    ai_msg = llm.invoke(messages)
+    print(ai_msg)
+    keywords = ai_msg.content.split("keywords extracted from the text:\n")[-1].strip()
+    return keywords.split(",")
+
+def openai_llm(keywords, jif, publisher):
+    retriever = db.as_retriever()
+
+    # Set up system prompt
+    system_prompt = (
+        "You are AI journal recommender system. Given keywords of a researh paper "
+        "Use the following pieces of retrieved context to give "
+        "response in tabular format with columns in the order Journal Name, Publisher, JIF, Similarity Percentage, and preferred Timeline. "
+        f"You should answer based on the given context in decreasing order of JIF(show only results above JIF {jif} and from publishers {publisher})."
+        "If no journals found do independent search and only show those results."
+        "Avoid giving introductory texts and ending explanations"
+        "\n\n"
+        "{context}"
+    )
+
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", system_prompt),
+        ("user", "{input}"),
+    ])
+
+    # Create the question-answer chain
+    question_answer_chain = create_stuff_documents_chain(model, prompt)
+    rag_chain = create_retrieval_chain(retriever, question_answer_chain)
+
+    
+    
+    # Ensure the vector dimensions match the FAISS index
+    
+
+    # Invoke the RAG chain
+    answer = rag_chain.invoke({"input": f"Keywords: {keywords}, Minimum JIF: {jif},Required Publisher Publisher: {publisher}"})
+
+    # Inspect the result structure
+    return answer['answer']
+
+
+# Function to read PDF file content
+def read_pdf(file):
+    with pdfplumber.open(file) as pdf:
+        text = ""
+        for page in pdf.pages:
+            text += page.extract_text() + "\n"
+    return text[:6000]
+
+
+# Function to read text file content with encoding detection
+def read_text_file(file):
+    raw_data = file.read()
+    result = chardet.detect(raw_data)
+    encoding = result["encoding"]
+    return raw_data.decode(encoding)
+
+
+# Function to clean extracted keywords
+
+
+def clean_keywords(keywords):
+    cleaned_keywords = []
+    for keyword in keywords:
+        keyword = keyword.strip()
+        keyword = re.sub(r"\b\w+@\w+\.\w+\b", "", keyword)  # Remove email addresses
+        keyword = re.sub(r"\b\d{10,}\b", "", keyword)  # Remove phone numbers
+        if keyword:  # Only add non-empty keywords
+            cleaned_keywords.append(keyword)
+
+    # Join the cleaned keywords into a single string, separated by commas
+    res = ""
+    for i in cleaned_keywords:
+        res += i + ","
+    return res
+
+
+# Streamlit interface
+st.markdown(
+    """
+    <h1 style='text-align: center; color: #007bff;margin-bottom: -10px;'>JOURNAL NAVIGATOR</h1>
+    <h3 style='text-align: center; color: #ffffff;margin-bottom: 30px;'>Extracts The Best Fit for Your Research Paper</h3>
+    <hr style='border: 1px solid #FFFFFF; margin: 20px 0;'>  <!-- Horizontal line -->
+    """,
+    unsafe_allow_html=True,
+)
+
+
+# Input for Document
+
+# Radio button input without extra space
+st.markdown(
+    "<h5 style='text-align: left; font-weight: bold; margin: 0;'>Choose Input method for Document:</h5>",
+    unsafe_allow_html=True,
+)
+input_option1 = st.radio("", ("Upload a file", "Enter text directly"), index=0)
+document_text1 = ""
+
+if input_option1 == "Upload a file":
+    uploaded_file1 = st.file_uploader(
+        "Choose a document", type=["txt", "pdf"], key="doc1"
+    )
+    if uploaded_file1 is not None:
+        try:
+            if uploaded_file1.type == "application/pdf":
+                document_text1 = read_pdf(uploaded_file1)
+            else:
+                document_text1 = read_text_file(uploaded_file1)
+            st.subheader("Document Content:")
+            st.write(document_text1[:100] + "...")  # Display first 100 characters
+        except Exception as e:
+            st.write(f"Error reading the file: {e}")
+elif input_option1 == "Enter text directly":
+    document_text1 = st.text_area("Enter the text for Document 1:", "")
+    if document_text1:
+        st.subheader("Entered Text Content for Document:")
+        st.write(document_text1[:100] + "...")  # Display first 100 characters
+
+st.markdown(
+    """
+    <hr style='border: 1px solid #FFFFFF; margin: 30px 0;'>  <!-- Horizontal line -->
+    """,
+    unsafe_allow_html=True,
+)
+
+st.markdown(
+    """
+        <h4 style='text-align: left; font-weight: bold; color: #007bff;'>RESEARCH PAPER PREFERENCES</h3>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+# Publisher Preferences
+
+
+# Function to read and parse the list of publishers from a text file
+def load_publisher_names(file_path):
+    with open(file_path, "r") as file:
+        # Use ast.literal_eval to safely evaluate the list string
+        publishers = ast.literal_eval(file.read())
+    return publishers
+
+
+# Load publishers from the file
+publisher_options = load_publisher_names("Publishers.txt")
+selected_publishers = st.multiselect(
+    "Select preferred publishers:", publisher_options
+) or ["no preference"]
+
+# Impact Factor
+impact_factor = st.slider(
+    "Select Minimum Impact Factor",
+    min_value=0.0,
+    max_value=500.0,
+    step=0.1,
+)
+
+# Timeline selection
+timeline_selection = st.text_input(
+    "Select Maximum First Decision Time (Days)"
+)
+
+
+# Show Results Button
+if st.button("Show Results"):
+    if document_text1:
+
+        unique_keywords1 = extract_token_llama3(document_text1)
+
+        # st.write("---")
+        # # st.subheader("Extracted Keywords:")
+        # st.markdown(
+        #     "<h3 style='text-align: left; color: #ff4b4b;'>Extracted Keywords</h3>",
+        #     unsafe_allow_html=True,
+        # )
+        # # st.write("**Document Keywords:**")
+        # st.markdown("\n".join(f"- {keyword}" for keyword in unique_keywords1))
+
+        # Clean keywords
+        cleaned_keywords1 = clean_keywords(unique_keywords1)
+
+        st.markdown(
+            "<h3 style='text-align: left; color: #ff4b4b;'>RECOMMENDED JOURNALS</h3>",
+            unsafe_allow_html=True,
+        )
+
+           
         loop = get_or_create_event_loop()
         # Ensure event loop exists
         selected_publishers_str = ", ".join(selected_publishers)
