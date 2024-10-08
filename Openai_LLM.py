@@ -36,6 +36,7 @@ from langchain_community.vectorstores import FAISS
 import faiss
 from langchain_community.vectorstores import Chroma
 from langchain_community.docstore.in_memory import InMemoryDocstore
+from langchain.schema import Document
 from langchain.chains import ConversationalRetrievalChain
 from langchain_text_splitters import NLTKTextSplitter
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -182,7 +183,37 @@ def openai_llm(keywords, jif, publisher):
     # Inspect the result structure
     return answer['answer']
 
+def faiss_search(keywords,jif,publisher):
+    
 
+    # Embed the query
+    query_embedding = OpenAIEmbeddings(model="text-embedding-3-large").embed_query(keywords)
+
+    # Perform similarity search with FAISS (adjust the 'k' value based on how many results you want)
+    results = db.similarity_search_by_vector(query_embedding, k=5)
+    print(results)
+    # Print the matched results
+    # for doc in results:
+    #     print(f"Journal Name: {doc.metadata['Journal Name']}, Publisher: {doc.metadata['Publisher']}, JIF: {doc.metadata['JIF']}, Similarity: {doc.score}")
+    st.write(results)
+    context = ""
+    for doc in results:
+        context += f"{doc.page_content}\n\n"
+    llm = ChatGroq(model="llama3-8b-8192", temperature=0)
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You will return the output in tabular Format Journal Name, Publisher, Jif"
+                f"Only return those whose Jif greater than {jif} and only from publishers {publisher} in row  in decreasing order of JIF"
+                f"Do not include publishers other than {publisher}"
+                
+            ),
+        },
+        {"role": "user", "content": context},
+    ]
+    ai_msg = llm.invoke(messages)
+    return (ai_msg.content)
 # Function to read PDF file content
 def read_pdf(file):
     with pdfplumber.open(file) as pdf:
@@ -342,7 +373,18 @@ if st.button("Show Results"):
         #     )
         # )
         # st.write(response)
-        st.write(openai_llm(cleaned_keywords1,impact_factor,selected_publishers_str))
+        option = st.radio(
+            "Choose the method to view output:",
+        ('FAISS Search', 'OpenAI LLM'))
+
+# Based on the selected option, display the output
+        if option == 'FAISS Search':
+            st.write("FAISS Search Results:")
+            st.write(faiss_search(cleaned_keywords1 + " JIF " + str(impact_factor), impact_factor, selected_publishers_str))
+
+        elif option == 'OpenAI LLM':
+            st.write("OpenAI LLM Results:")
+            st.write(openai_llm(cleaned_keywords1, impact_factor, selected_publishers_str))
         # Display user preferences
     #     st.markdown(
     # final_res(
