@@ -155,9 +155,8 @@ def openai_llm(keywords, jif, publisher):
 
     # Set up system prompt
     system_prompt = (
-    f"Recommend appropriate journals having {keywords} keywords with"
-      f"greater than {jif} Journal impact factor in context and consider only these {publisher} publishers orderd by similarity to keywords."
-     f" Output table Format: Journal Name, Publisher, JIF.Dont give any introductory or ending texts."
+    f"Find all journals from Context that can publish a research paper with {keywords} keywords, having JIF greater than {jif} from any these {publisher} publishers .\n"
+     f" Output table Format: Journal Name, Publisher JIF(as per context ).Dont give any introductory or ending texts."
      "Context: {context}"
 )
 
@@ -178,7 +177,7 @@ def openai_llm(keywords, jif, publisher):
     
 
     # Invoke the RAG chain
-    answer = rag_chain.invoke({"input": f"Keywords: {keywords}, Minimum JIF: {jif},Required Publisher Publisher: {publisher}"})
+    answer = rag_chain.invoke({"input": f"Keywords: {keywords}, Minimum JIF: {jif},Publisher list: {publisher}"})
 
     # Inspect the result structure
     return answer['answer']
