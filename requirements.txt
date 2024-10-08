@@ -18,3 +18,4 @@ langchain-objectbox
 faiss-cpu
 sentence-transformers
 openai
+langchain_openai
