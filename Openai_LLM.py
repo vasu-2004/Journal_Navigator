@@ -147,7 +147,6 @@ def extract_token_llama3(text):
     ]
 
     ai_msg = llm.invoke(messages)
-    print(ai_msg)
     keywords = ai_msg.content.split("keywords extracted from the text:\n")[-1].strip()
     return keywords.split(",")
 
@@ -190,7 +189,7 @@ def faiss_search(keywords,jif,publisher):
     query_embedding = OpenAIEmbeddings(model="text-embedding-3-large").embed_query(keywords)
 
     # Perform similarity search with FAISS (adjust the 'k' value based on how many results you want)
-    results = db.similarity_search_by_vector(query_embedding, k=5)
+    results = db.similarity_search_by_vector(query_embedding, k=15)
     print(results)
     # Print the matched results
     # for doc in results:
@@ -199,21 +198,76 @@ def faiss_search(keywords,jif,publisher):
     context = ""
     for doc in results:
         context += f"{doc.page_content}\n\n"
+    valid_publishers = publisher
+
+# Minimum JIF value to filter
+    min_jif = jif # Specify the minimum JIF threshold here
+
+    # Split the output based on each entry starting with 'Name: '
+    entries = re.split(r'\n(?=Name:)', context.strip())
+
+    # Initialize an empty list to hold the dictionaries
+    data = []
+
+    # Process each entry
+    for entry in entries:
+        # Use regex to capture different fields
+        name = re.search(r"Name: (.+)", entry)
+        jif = re.search(r"JIF: (.+)", entry)
+        category = re.search(r"Category: (.+)", entry)
+        keywords = re.search(r"Keywords: (.+)", entry)
+        publisher = re.search(r"Publisher: (.+)", entry)
+
+        # Only process if the publisher is in the valid list and the JIF is above the minimum
+        if publisher and publisher.group(1) in valid_publishers and jif and float(jif.group(1)) >= min_jif:
+            # Create a dictionary for each entry and append it to the list
+            entry_dict = {
+                "Name": name.group(1) if name else None,
+                "JIF": float(jif.group(1)) if jif else None,  # Convert JIF to float for sorting
+                "Category": category.group(1) if category else None,
+                "Keywords": eval(keywords.group(1)) if keywords else None,  # Use eval to convert string list to actual list
+                "Publisher": publisher.group(1) if publisher else None
+            }
+            data.append(entry_dict)
+
+    # Sort the data by JIF in decreasing order
+    sorted_data = sorted(data, key=lambda x: x['JIF'], reverse=True)
+    # Sort the data by JIF in decreasing order
+# Initialize an empty string to hold the formatted output
+    output_str = ""
+
+    # Convert each dictionary to a single-line formatted string and append to output_str
+    for entry in sorted_data:
+        entry_str = (
+            f"Name: {entry['Name']}, "
+            f"JIF: {entry['JIF']}, "
+            f"Category: {entry['Category']}, "
+            f"Keywords: {entry['Keywords']}, "
+            f"Publisher: {entry['Publisher']}\n"
+        )
+        output_str += entry_str
+
+    # Output the result
+    print(output_str)
+    
     llm = ChatGroq(model="llama3-8b-8192", temperature=0)
     messages = [
-        {
-            "role": "system",
-            "content": (
-                "You will return the output in tabular Format Journal Name, Publisher, Jif"
-                f"Only return those whose Jif greater than {jif} and only from publishers {publisher} in row  in decreasing order of JIF"
-                f"Do not include publishers other than {publisher}"
-                
-            ),
-        },
-        {"role": "user", "content": context},
+    {
+        "role": "system",
+        "content": (
+            "You are the best table maker, and you will convert the input into a tabular format with columns: Journal Name, Publisher, and JIF in decreasing order of JIF. "
+            "Use a markdown table format. Do not include any introductory or ending text. "
+            "Output should look like: \n"
+            "| Journal Name | Publisher | JIF |\n"
+            "|--------------|-----------|-----|\n"
+        ),
+    },
+    {"role": "user", "content": output_str},
     ]
+
     ai_msg = llm.invoke(messages)
-    return (ai_msg.content)
+    return ai_msg.content
+
 # Function to read PDF file content
 def read_pdf(file):
     with pdfplumber.open(file) as pdf:
@@ -336,65 +390,28 @@ timeline_selection = st.text_input(
     "Select Maximum First Decision Time (Days)"
 )
 
+search_method = st.selectbox("Choose search method:", ("FAISS Search", "OpenAI LLM"))
 
 # Show Results Button
 if st.button("Show Results"):
     if document_text1:
-
         unique_keywords1 = extract_token_llama3(document_text1)
-
-        # st.write("---")
-        # # st.subheader("Extracted Keywords:")
-        # st.markdown(
-        #     "<h3 style='text-align: left; color: #ff4b4b;'>Extracted Keywords</h3>",
-        #     unsafe_allow_html=True,
-        # )
-        # # st.write("**Document Keywords:**")
-        # st.markdown("\n".join(f"- {keyword}" for keyword in unique_keywords1))
-
-        # Clean keywords
         cleaned_keywords1 = clean_keywords(unique_keywords1)
 
-        st.markdown(
-            "<h3 style='text-align: left; color: #ff4b4b;'>RECOMMENDED JOURNALS</h3>",
-            unsafe_allow_html=True,
-        )
+        st.markdown("<h3 style='text-align: left; color: #ff4b4b;'>RECOMMENDED JOURNALS</h3>", unsafe_allow_html=True)
 
-           
         loop = get_or_create_event_loop()
-        # Ensure event loop exists
         selected_publishers_str = ", ".join(selected_publishers)
-        # response = loop.run_until_complete(
-        #     gemini_res(
-        #         cleaned_keywords1,
-        #         impact_factor,
-        #         timeline_selection,
-        #         selected_publishers_str,
-        #     )
-        # )
-        # st.write(response)
-        option = st.radio(
-            "Choose the method to view output:",
-        ('FAISS Search', 'OpenAI LLM'))
 
-# Based on the selected option, display the output
-        if option == 'FAISS Search':
+        # Call the selected search method based on dropdown choice
+        if search_method == "FAISS Search":
             st.write("FAISS Search Results:")
-            st.write(faiss_search(cleaned_keywords1 + " JIF " + str(impact_factor), impact_factor, selected_publishers_str))
-
-        elif option == 'OpenAI LLM':
+            st.write(faiss_search(cleaned_keywords1 + " JIF " + str(impact_factor), impact_factor, selected_publishers))
+        elif search_method == "OpenAI LLM":
             st.write("OpenAI LLM Results:")
             st.write(openai_llm(cleaned_keywords1, impact_factor, selected_publishers_str))
-        # Display user preferences
-    #     st.markdown(
-    # final_res(
-    #     cleaned_keywords1,
-    #     impact_factor,
-    #     timeline_selection,
-    #     selected_publishers
-    # )
-    # )
+
 else:
     st.warning(
-        """1. If you have uploaded the document or entered the text Click on "Show Results" to get recommendations.\n2. If not Please upload a document or enter text to get recommendations."""
+        """1. If you have uploaded the document or entered the text, click on "Show Results" to get recommendations.\n2. If not, please upload a document or enter text to get recommendations."""
     )
