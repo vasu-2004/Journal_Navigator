@@ -184,12 +184,13 @@ def openai_llm(keywords, jif, publisher):
 
 def faiss_search(keywords,jif,publisher):
     
-
+    embeddings = HuggingFaceEmbeddings(model_name='sentence-transformers/all-MiniLM-L6-v2', model_kwargs={'device': 'cpu'})
+    db1 = FAISS.load_local(DB_FAISS_PATH, embeddings, allow_dangerous_deserialization=True)
     # Embed the query
-    query_embedding = OpenAIEmbeddings(model="text-embedding-3-large").embed_query(keywords)
+    query_embedding = embeddings.embed_query(keywords)
 
     # Perform similarity search with FAISS (adjust the 'k' value based on how many results you want)
-    results = db.similarity_search_by_vector(query_embedding, k=15)
+    results = db1.similarity_search_by_vector(query_embedding, k=15)
     print(results)
     # Print the matched results
     # for doc in results:
@@ -199,7 +200,8 @@ def faiss_search(keywords,jif,publisher):
     for doc in results:
         context += f"{doc.page_content}\n\n"
     valid_publishers = publisher
-
+    if (valid_publishers == ["no preference"]):
+        valid_publishers = []
 # Minimum JIF value to filter
     min_jif = jif # Specify the minimum JIF threshold here
 
@@ -218,17 +220,16 @@ def faiss_search(keywords,jif,publisher):
         keywords = re.search(r"Keywords: (.+)", entry)
         publisher = re.search(r"Publisher: (.+)", entry)
 
-        # Only process if the publisher is in the valid list and the JIF is above the minimum
-        if publisher and publisher.group(1) in valid_publishers and jif and float(jif.group(1)) >= min_jif:
-            # Create a dictionary for each entry and append it to the list
-            entry_dict = {
-                "Name": name.group(1) if name else None,
-                "JIF": float(jif.group(1)) if jif else None,  # Convert JIF to float for sorting
-                "Category": category.group(1) if category else None,
-                "Keywords": eval(keywords.group(1)) if keywords else None,  # Use eval to convert string list to actual list
-                "Publisher": publisher.group(1) if publisher else None
-            }
-            data.append(entry_dict)
+        if jif and float(jif.group(1)) >= min_jif:
+            if not valid_publishers or (publisher and publisher.group(1) in valid_publishers):
+                entry_dict = {
+                    "Name": name.group(1) if name else None,
+                    "JIF": float(jif.group(1)) if jif else None,
+                    "Category": category.group(1) if category else None,
+                    "Keywords": eval(keywords.group(1)) if keywords else None,
+                    "Publisher": publisher.group(1) if publisher else None
+                }
+                data.append(entry_dict)
 
     # Sort the data by JIF in decreasing order
     sorted_data = sorted(data, key=lambda x: x['JIF'], reverse=True)
