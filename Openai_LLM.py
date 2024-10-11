@@ -2,7 +2,7 @@ import subprocess
 import sys
 import streamlit as st
 import os
-
+import json
 
 # Function to install packages from requirements.txt
 def install_requirements():
@@ -155,10 +155,15 @@ def openai_llm(keywords, jif, publisher):
 
     # Set up system prompt
     system_prompt = (
-    f"Find all journals from Context that can publish a research paper with {keywords} keywords, having JIF greater than {jif} from any these {publisher} publishers .\n"
-     f" Output table Format: Journal Name, Publisher JIF(as per context ).Dont give any introductory or ending texts."
-     "Context: {context}"
+    f"From the provided context, recommend all possible journals from context only ( like even slightest match would work) that can publish the research paper with {keywords} keywords."
+    f"Ensure that you include **every** journal with a Journal Impact Factor (JIF) strictly greater than {jif}, and the Journal must be only from any Publishers in list: {publisher}. "
+    f"Make sure to include both exact matches and related journals, and prioritize including **all relevant high-JIF journals**. "
+    f"Present the results in a tabular format( no latex code) with the following columns: Journal Name, Publisher, JIF. "
+    f"Ensure no introductory or ending texts are included. "
+    "Context: {context}"
 )
+
+
 
 
 
@@ -182,28 +187,31 @@ def openai_llm(keywords, jif, publisher):
     # Inspect the result structure
     return answer['answer']
 
-def faiss_search(keywords,jif,publisher):
-    
+def faiss_search(keywords, jif, publisher):
+    # Initialize the embeddings model
     embeddings = HuggingFaceEmbeddings(model_name='sentence-transformers/all-MiniLM-L6-v2', model_kwargs={'device': 'cpu'})
+    
+    # Load the FAISS index from local storage
     db1 = FAISS.load_local(DB_FAISS_PATH, embeddings, allow_dangerous_deserialization=True)
+
     # Embed the query
     query_embedding = embeddings.embed_query(keywords)
 
-    # Perform similarity search with FAISS (adjust the 'k' value based on how many results you want)
+    # Perform similarity search with FAISS (retrieve top 15 results)
     results = db1.similarity_search_by_vector(query_embedding, k=15)
-    print(results)
-    # Print the matched results
-    # for doc in results:
-    #     print(f"Journal Name: {doc.metadata['Journal Name']}, Publisher: {doc.metadata['Publisher']}, JIF: {doc.metadata['JIF']}, Similarity: {doc.score}")
-    st.write(results)
+
+    # Prepare the context for processing results
     context = ""
     for doc in results:
         context += f"{doc.page_content}\n\n"
+    
+    # Initialize valid publishers, check for no preference
     valid_publishers = publisher
-    if (valid_publishers == ["no preference"]):
+    if valid_publishers == ["no preference"]:
         valid_publishers = []
-# Minimum JIF value to filter
-    min_jif = jif # Specify the minimum JIF threshold here
+
+    # Minimum JIF value for filtering
+    min_jif = jif  # Specify the minimum JIF threshold
 
     # Split the output based on each entry starting with 'Name: '
     entries = re.split(r'\n(?=Name:)', context.strip())
@@ -215,26 +223,28 @@ def faiss_search(keywords,jif,publisher):
     for entry in entries:
         # Use regex to capture different fields
         name = re.search(r"Name: (.+)", entry)
-        jif = re.search(r"JIF: (.+)", entry)
+        jif_match = re.search(r"JIF: (.+)", entry)
         category = re.search(r"Category: (.+)", entry)
-        keywords = re.search(r"Keywords: (.+)", entry)
-        publisher = re.search(r"Publisher: (.+)", entry)
+        keywords_match = re.search(r"Keywords: (.+)", entry)
+        publisher_match = re.search(r"Publisher: (.+)", entry)
 
-        if jif and float(jif.group(1)) >= min_jif:
-            if not valid_publishers or (publisher and publisher.group(1) in valid_publishers):
-                entry_dict = {
+        # Filter based on JIF and Publisher
+        if jif_match and float(jif_match.group(1)) >= min_jif:
+            # Check if valid_publishers is empty (no preference) or matches the publisher in the entry
+            if not valid_publishers or (publisher_match and publisher_match.group(1) in valid_publishers):
+                # Safely extract and append journal data
+                data.append({
                     "Name": name.group(1) if name else None,
-                    "JIF": float(jif.group(1)) if jif else None,
+                    "JIF": float(jif_match.group(1)) if jif_match else None,
                     "Category": category.group(1) if category else None,
-                    "Keywords": eval(keywords.group(1)) if keywords else None,
-                    "Publisher": publisher.group(1) if publisher else None
-                }
-                data.append(entry_dict)
+                    "Keywords": json.loads(keywords_match.group(1)) if keywords_match else None,  # Replace eval() with json.loads()
+                    "Publisher": publisher_match.group(1) if publisher_match else None
+                })
 
     # Sort the data by JIF in decreasing order
     sorted_data = sorted(data, key=lambda x: x['JIF'], reverse=True)
-    # Sort the data by JIF in decreasing order
-# Initialize an empty string to hold the formatted output
+
+    # Initialize an empty string to hold the formatted output
     output_str = ""
 
     # Convert each dictionary to a single-line formatted string and append to output_str
@@ -247,6 +257,7 @@ def faiss_search(keywords,jif,publisher):
             f"Publisher: {entry['Publisher']}\n"
         )
         output_str += entry_str
+
 
     # Output the result
     print(output_str)
