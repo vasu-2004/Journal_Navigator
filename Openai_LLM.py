@@ -276,9 +276,14 @@ def faiss_search(keywords, jif, publisher):
     },
     {"role": "user", "content": output_str},
     ]
-
-    ai_msg = llm.invoke(messages)
-    return ai_msg.content
+    if (output_str):
+        ai_msg = llm.invoke(messages)
+        return ai_msg.content
+    else:
+        return ("| Journal Name | Publisher | JIF |\n"
+            "|--------------|-----------|-----|\n"
+            "No results found.")
+    
 
 # Function to read PDF file content
 def read_pdf(file):
