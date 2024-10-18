@@ -2,8 +2,6 @@ import streamlit as st
 import subprocess
 import sys
 import os
-
-
 import json
 # Function to install packages from requirements.txt
 def install_requirements():
@@ -188,6 +186,7 @@ def faiss_search(keywords, jif, publisher):
 
     # Load the FAISS index from local storage
     db1 = FAISS.load_local(DB_FAISS_PATH, embeddings, allow_dangerous_deserialization=True)
+
     # Embed the query
     query_embedding = embeddings.embed_query(keywords)
 
@@ -213,10 +212,10 @@ def faiss_search(keywords, jif, publisher):
     for entry in entries:
         # Use regex to capture different fields
         name = re.search(r"Name: (.+)", entry)
-        jif = re.search(r"JIF: (.+)", entry)
+        jif_match = re.search(r"JIF: (.+)", entry)
         category = re.search(r"Category: (.+)", entry)
-        keywords = re.search(r"Keywords: (.+)", entry)
-        publisher = re.search(r"Publisher: (.+)", entry)
+        keywords_match = re.search(r"Keywords: (.+)", entry)
+        publisher_match = re.search(r"Publisher: (.+)", entry)
 
         # Filter based on JIF and Publisher
         if jif_match and float(jif_match.group(1)) >= min_jif:
