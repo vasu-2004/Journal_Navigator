@@ -1,0 +1,6 @@
+[theme]
+primaryColor = "#7b68ee"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F2F2F2"  # Very light grey for sidebar or secondary elements to keep it subtle
+textColor = "#333333"  # Dark grey text for excellent readability
+font = "Sans-serif"  # Sans-serif for a clean, modern look (can switch to "serif" if desired)
