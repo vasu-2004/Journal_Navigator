@@ -3,16 +3,6 @@ import subprocess
 import sys
 import os
 import json
-# Function to install packages from requirements.txt
-def install_requirements():
-    subprocess.check_call(
-        [sys.executable, "-m", "pip", "install", "-r", "requirements.txt"]
-    )
-# Install requirements
-try:
-    install_requirements()
-except Exception as e:
-    st.error(f"Error installing requirements: {e}")
 import requests
 import pdfplumber
 import chardet
@@ -317,6 +307,14 @@ def clean_keywords(keywords):
         res += i + ","
     return res
 
+
+# Function to install packages from requirements.txt
+def install_requirements():
+    subprocess.check_call(
+        [sys.executable, "-m", "pip", "install", "-r", "requirements.txt"]
+    )
+
+
 # Streamlit interface
 def main():
     st.markdown(
@@ -327,6 +325,13 @@ def main():
         ,
         unsafe_allow_html=True,
     )
+
+    # Install requirements
+    try:
+        install_requirements()
+    except Exception as e:
+        st.error(f"Error installing requirements: {e}")
+
     # Sidebar
     st.sidebar.markdown(
         """
@@ -396,7 +401,7 @@ def main():
             # Spinner ends here
 
             st.markdown(  # Heading is placed outside the spinner block
-                "<h4 style='text-align: left; color: #7b68ee;'>RECOMMENDED JOURNALS</h4>",
+                "<h3 style='text-align: left; color: #7b68ee;'>RECOMMENDED JOURNALS</h3>",
                 unsafe_allow_html=True,
             )
 
@@ -408,7 +413,7 @@ def main():
             st.write(results) # Display the results
 
         else:
-            st.error("Please enter the Abstract")
+            st.error("Please enter an abstract or upload a document.")
     else:
         st.warning(
             """1. If you have entered the text, click on "Show Results" to get recommendations.\n2. If not, please enter text to get recommendations."""
