@@ -181,7 +181,7 @@ def faiss_search(keywords, jif, publisher):
     query_embedding = embeddings.embed_query(keywords)
 
     # Perform similarity search with FAISS (retrieve top 100 results)
-    results = db1.similarity_search_by_vector(query_embedding, k=100)
+    results = db1.similarity_search_by_vector(query_embedding, k=20)
 
     # Prepare the context for processing results
     context = "\n\n".join(doc.page_content for doc in results)
@@ -398,6 +398,21 @@ def main():
                     results = openai_llm(
                         cleaned_keywords1, impact_factor, selected_publishers_str
                     )
+
+                lines = results.strip().split("\n")
+
+                # Extract headers and rows
+                headers = [header.strip() for header in lines[0].split("|") if header.strip()]
+                rows = [re.split(r"\s*\|\s*", line)[1:-1] for line in lines[2:]]
+
+                # Create a structured list of dictionaries
+                journals = []
+                for i, row in enumerate(rows):
+                    journal_data = dict(zip(headers, row))
+                    journals.append(journal_data)
+
+
+                
             # Spinner ends here
 
             st.markdown(  # Heading is placed outside the spinner block
@@ -405,12 +420,20 @@ def main():
                 unsafe_allow_html=True,
             )
 
+
             if search_method == "FAISS Search":
                 st.write("FAISS Search Results:")
             elif search_method == "OpenAI LLM":
                 st.write("OpenAI LLM Results:")
 
-            st.write(results) # Display the results
+            for rank, journal in enumerate(journals, start=1):
+                with st.expander(f"Rank {rank}: {journal['Journal Name']}"):
+                    st.write(f"**Publisher**: {journal['Publisher']}")
+                    st.write(f"**Journal Impact Factor (JIF)**: {journal['JIF']}")
+
+            
+                    
+                   
 
         else:
             st.error("Please enter an abstract or upload a document.")
