@@ -241,35 +241,50 @@ def faiss_search(keywords, jif, publisher):
             "|--------------|-----------|-----|\n"
             "No results found."
         )
+    str_=""
+    for entry in sorted_data:
+        entry_str = (
+            f"Name: {entry['Name']}, "
+            f"JIF: {entry['JIF']}, "
+            f"Category: {entry['Category']}, "
+            f"Keywords: {entry['Keywords']}, "
+            f"Publisher: {entry['Publisher']}\n"
+        )
+        str_ += entry_str
 
+    # Output the result
+    if(str_):
+        
     # Create markdown table rows
-    table_rows = "\n".join(
-        f"| {entry['Name']} | {entry['Publisher']} | {entry['JIF']} |"
-        for entry in sorted_data
-    )
+        table_rows = "\n".join(
+            f"| {entry['Name']} | {entry['Publisher']} | {entry['JIF']} |"
+            for entry in sorted_data
+        )
+        # Generate the markdown table header and combine with rows
+        output_str = (
+            "| Journal Name | Publisher | JIF |\n"
+            "|--------------|-----------|-----|\n" + table_rows
+        )
 
-    # Generate the markdown table header and combine with rows
-    output_str = (
-        "| Journal Name | Publisher | JIF |\n"
-        "|--------------|-----------|-----|\n" + table_rows
-    )
+        # Prepare the messages for LLaMA
+        llm = ChatGroq(model="llama3-8b-8192", temperature=0)
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are the best table maker, and you will convert the input into a tabular format with columns: Journal Name, Publisher, and JIF in decreasing order of JIF. "
+                    "Use a markdown table format. Do not include any introductory or ending text."
+                ),
+            },
+            {"role": "user", "content": output_str},
+        ]
 
-    # Prepare the messages for LLaMA
-    llm = ChatGroq(model="llama3-8b-8192", temperature=0)
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are the best table maker, and you will convert the input into a tabular format with columns: Journal Name, Publisher, and JIF in decreasing order of JIF. "
-                "Use a markdown table format. Do not include any introductory or ending text."
-            ),
-        },
-        {"role": "user", "content": output_str},
-    ]
-
-    # Invoke the LLaMA model to generate the final output
-    ai_msg = llm.invoke(messages)
-    return ai_msg.content
+        # Invoke the LLaMA model to generate the final output
+        ai_msg = llm.invoke(messages)
+        return ai_msg.content
+    else:
+        return ("| Journal Name | Publisher | JIF |\n"
+            "|--------------|-----------|-----|\n")
 
 
 # Function to read PDF file content
@@ -425,11 +440,21 @@ def main():
                 st.write("FAISS Search Results:")
             elif search_method == "OpenAI LLM":
                 st.write("OpenAI LLM Results:")
-
+                
+            check = False
             for rank, journal in enumerate(journals, start=1):
-                with st.expander(f"Rank {rank}: {journal['Journal Name']}"):
-                    st.write(f"**Publisher**: {journal['Publisher']}")
-                    st.write(f"**Journal Impact Factor (JIF)**: {journal['JIF']}")
+                if journal and isinstance(journal, dict):  # Ensure journal is a non-empty dictionary
+                    journal_name = journal.get('Journal Name', 'Unknown Journal')
+                    publisher = journal.get('Publisher', 'Unknown Publisher')
+                    jif = journal.get('JIF', 'N/A')  # Default to 'N/A' if JIF is missing
+                    check = True
+                    with st.expander(f"Rank {rank}: {journal_name}"):
+                        st.write(f"**Publisher**: {publisher}")
+                        st.write(f"**Journal Impact Factor (JIF)**: {jif}")
+                else:
+                    if(check==False):
+                        st.write(f"No journal data available.")
+
 
             
                     
