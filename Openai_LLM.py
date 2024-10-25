@@ -85,28 +85,6 @@ else:
     embeddings = HuggingFaceEmbeddings(model_name='sentence-transformers/all-MiniLM-L6-v2', model_kwargs={'device': 'cpu'})
     db = FAISS.from_documents(data, embeddings)
     db.save_local(DB_FAISS_PATH)
-# Check if the vector store already exists
-
-    print("Creating new FAISS vector store.")
-    # Load data from the CSV file as before
-    loader = CSVLoader(
-        file_path="Final_Research_Dataset.csv",
-        encoding="utf-8",
-        csv_args={"delimiter": ","},
-    )
-    docs = loader.load_and_split()
-
-    # Create embeddings and vector database
-    embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
-    index = faiss.IndexFlatL2(len(OpenAIEmbeddings().embed_query(" ")))
-    db = FAISS(
-        embedding_function=OpenAIEmbeddings(),
-        index=index,
-        docstore=InMemoryDocstore(),
-        index_to_docstore_id={}
-    )
-    db.add_documents(documents=docs)
-    db.save_local(DB_Path)
 
 
 def format_docs(docs):
