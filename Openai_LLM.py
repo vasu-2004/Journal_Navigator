@@ -70,21 +70,21 @@ llm = ChatGroq(model="llama3-8b-8192", temperature=0)
 key = os.getenv("GOOGLE_API_KEY")
 db = ""
 # Check if the vector store already exists
-if os.path.exists(DB_Path):
+if os.path.exists(DB_FAISS_PATH):
     print("Loading existing FAISS vector store.")
     # Load the embeddings as before
-    embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
-    db = FAISS.load_local(DB_Path, embeddings, allow_dangerous_deserialization=True)
+    embeddings = HuggingFaceEmbeddings(model_name='sentence-transformers/all-MiniLM-L6-v2', model_kwargs={'device': 'cpu'})
+    db = FAISS.load_local(DB_FAISS_PATH, embeddings, allow_dangerous_deserialization=True)
 else:
     print("Creating new FAISS vector store.")
     # Load data from the CSV file as before
     loader = CSVLoader(file_path="Final_Research_Dataset.csv", encoding="utf-8", csv_args={'delimiter': ','})
-    data = loader.load_and_split()
-
+    data = loader.load()
+    
     # Create embeddings and vector database
-    embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
+    embeddings = HuggingFaceEmbeddings(model_name='sentence-transformers/all-MiniLM-L6-v2', model_kwargs={'device': 'cpu'})
     db = FAISS.from_documents(data, embeddings)
-    db.save_local(DB_Path)
+    db.save_local(DB_FAISS_PATH)
 # Check if the vector store already exists
 
     print("Creating new FAISS vector store.")
