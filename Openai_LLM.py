@@ -61,7 +61,7 @@ def get_or_create_event_loop():
 
 os.environ["GROQ_API_KEY"] = os.getenv("GROQ_API_KEY")
 genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
-DB_FAISS_PATH = "vectorstore/db_faiss"
+DB_FAISS_PATH = "bgi/db_faiss"
 DB_Path = "openai3/db_faiss"
 os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
 
@@ -73,17 +73,18 @@ db = ""
 if os.path.exists(DB_FAISS_PATH):
     print("Loading existing FAISS vector store.")
     # Load the embeddings as before
-    embeddings = HuggingFaceEmbeddings(model_name='sentence-transformers/all-MiniLM-L6-v2', model_kwargs={'device': 'cpu'})
+    embeddings = HuggingFaceEmbeddings(model_name='BAAI/bge-small-en', model_kwargs={'device': 'cpu'})
     db = FAISS.load_local(DB_FAISS_PATH, embeddings, allow_dangerous_deserialization=True)
 else:
     print("Creating new FAISS vector store.")
     # Load data from the CSV file as before
-    loader = CSVLoader(file_path="Final_Research_Dataset.csv", encoding="utf-8", csv_args={'delimiter': ','})
+    loader = CSVLoader(file_path="Final_Research_Dataset_2.csv", encoding="utf-8", csv_args={'delimiter': ','})
     data = loader.load()
-    
+    print("Creating new embeddings.")
     # Create embeddings and vector database
-    embeddings = HuggingFaceEmbeddings(model_name='sentence-transformers/all-MiniLM-L6-v2', model_kwargs={'device': 'cpu'})
+    embeddings = HuggingFaceEmbeddings(model_name='BAAI/bge-small-en', model_kwargs={'device': 'cpu'})
     db = FAISS.from_documents(data, embeddings)
+    print("Saving..")
     db.save_local(DB_FAISS_PATH)
 
 
@@ -149,7 +150,7 @@ def openai_llm(keywords, jif, publisher):
 def faiss_search(keywords, jif, publisher):
     # Initialize the embeddings model
     embeddings = HuggingFaceEmbeddings(
-        model_name="sentence-transformers/all-MiniLM-L6-v2", model_kwargs={"device": "cpu"}
+        model_name="BAAI/bge-small-en", model_kwargs={"device": "cpu"}
     )
 
     # Load the FAISS index from local storage
@@ -184,7 +185,7 @@ def faiss_search(keywords, jif, publisher):
         category = re.search(r"Category: (.+)", entry)
         keywords_match = re.search(r"Keywords: (.+)", entry)
         publisher_match = re.search(r"Publisher: (.+)", entry)
-
+        first_decision_match = re.search(r"Decsion Time: (.+)", entry)
         # Filter based on JIF and Publisher
         if jif_match and float(jif_match.group(1)) >= min_jif:
             # If valid publishers are provided, check if the publisher matches
@@ -206,17 +207,19 @@ def faiss_search(keywords, jif, publisher):
                         "Category": category.group(1) if category else None,
                         "Keywords": keywords_list,
                         "Publisher": publisher_match.group(1) if publisher_match else None,
+                        "Decision Time": first_decision_match.group(1) if first_decision_match else None,
                     }
                 )
 
     # Sort the data by JIF in decreasing order
     sorted_data = sorted(data, key=lambda x: x["JIF"], reverse=True)
-
+    
     # Prepare output for markdown table
     if not sorted_data:
         return (
-            "| Journal Name | Publisher | JIF |\n"
-            "|--------------|-----------|-----|\n"
+            "| Journal Name | Publisher | JIF | First Decision Time |\n"
+            "|--------------|-----------|-----| --------------------|\n"
+
             "No results found."
         )
     str_=""
@@ -227,6 +230,7 @@ def faiss_search(keywords, jif, publisher):
             f"Category: {entry['Category']}, "
             f"Keywords: {entry['Keywords']}, "
             f"Publisher: {entry['Publisher']}\n"
+            f"Decision Time: {entry['Decision Time']}\n"
         )
         str_ += entry_str
 
@@ -235,13 +239,14 @@ def faiss_search(keywords, jif, publisher):
         
     # Create markdown table rows
         table_rows = "\n".join(
-            f"| {entry['Name']} | {entry['Publisher']} | {entry['JIF']} |"
+            f"| {entry['Name']} | {entry['Publisher']} | {entry['JIF']} | {entry['Decision Time']} |"
             for entry in sorted_data
         )
+        print(table_rows)
         # Generate the markdown table header and combine with rows
         output_str = (
-            "| Journal Name | Publisher | JIF |\n"
-            "|--------------|-----------|-----|\n" + table_rows
+            "| Journal Name | Publisher | JIF | First Decision Time |\n"
+            "|--------------|-----------|-----| --------------------|\n" + table_rows
         )
 
         # Prepare the messages for LLaMA
@@ -250,7 +255,7 @@ def faiss_search(keywords, jif, publisher):
             {
                 "role": "system",
                 "content": (
-                    "You are the best table maker, and you will convert the input into a tabular format with columns: Journal Name, Publisher, and JIF in decreasing order of JIF. "
+                    "You are the best table maker, and you will convert the input into a tabular format with columns: Journal Name, Publisher, JIF and First Decision Time in decreasing order of JIF. "
                     "Use a markdown table format. Do not include any introductory or ending text."
                 ),
             },
@@ -261,8 +266,8 @@ def faiss_search(keywords, jif, publisher):
         ai_msg = llm.invoke(messages)
         return ai_msg.content
     else:
-        return ("| Journal Name | Publisher | JIF |\n"
-            "|--------------|-----------|-----|\n")
+        return ("| Journal Name | Publisher | JIF | First Decision Time |\n"
+            "|--------------|-----------|-----| --------------------|\n")
 
 
 # Function to read PDF file content
@@ -424,11 +429,13 @@ def main():
                 if journal and isinstance(journal, dict):  # Ensure journal is a non-empty dictionary
                     journal_name = journal.get('Journal Name', 'Unknown Journal')
                     publisher = journal.get('Publisher', 'Unknown Publisher')
-                    jif = journal.get('JIF', 'N/A')  # Default to 'N/A' if JIF is missing
+                    jif = journal.get('JIF', 'N/A')
+                    decision_time = journal.get('First Decision Time')# Default to 'N/A' if JIF is missing
                     check = True
                     with st.expander(f"Rank {rank}: {journal_name}"):
                         st.write(f"**Publisher**: {publisher}")
                         st.write(f"**Journal Impact Factor (JIF)**: {jif}")
+                        st.write(f"**First Decision Time**: {decision_time}")
                 else:
                     if(check==False):
                         st.write(f"No journal data available.")
