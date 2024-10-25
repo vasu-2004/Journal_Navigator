@@ -4,6 +4,7 @@ requests
 scikit-learn
 chardet
 numpy
+nltk
 transformers
 torch
 langchain_groq
