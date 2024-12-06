@@ -48,8 +48,8 @@ api_key = "my_key"
 # client = OpenAI(api_key="", base_url="https://api.aimlapi.com/v1")
 nltk.download("punkt")
 load_dotenv()
-
-
+os.environ["GOOGLE_API_KEY"] = os.getenv("GOOGLE_API_KEY")
+key = os.getenv("GOOGLE_API_KEY")
 def get_or_create_event_loop():
     try:
         return asyncio.get_event_loop()
@@ -60,7 +60,7 @@ def get_or_create_event_loop():
 
 
 os.environ["GROQ_API_KEY"] = os.getenv("GROQ_API_KEY")
-genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
+os.environ["GOOGLE_API_KEY"] = os.getenv("GOOGLE_API_KEY")
 DB_FAISS_PATH = "bgi/db_faiss"
 DB_Path = "openai3/db_faiss"
 os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
@@ -146,6 +146,101 @@ def openai_llm(keywords, jif, publisher):
     # Inspect the result structure
     return answer["answer"]
 
+def gemini_llm(keywords, jif, publisher):
+    retriever = db.as_retriever()
+    print("Gemini APi KEy: "+key)
+    # Set up system prompt
+    system_prompt = (
+        f"You are a specialized Journal recommender that compares all journals in database to given research paper keywords and based on JIF and publisher gives result."
+        f"From the provided context, recommend all journals that are suitable for research paper with {keywords} keywords."
+        f"Ensure that you include **every** journal with a Journal Impact Factor (JIF) strictly greater than {jif}, and the Journal must be only from any Publishers in list: {publisher}. And Pls show that jif as in Context database "
+        f"Make sure to include both exact matches and related journals, and prioritize including **all relevant high-JIF journals**. "
+        f"Present the results in a tabular format( no latex code) with the following columns: Journal Name, Publisher, JIF. "
+        f"Ensure no introductory or ending texts are included."
+        "Context: {context}"
+    )
+
+    prompt = ChatPromptTemplate.from_messages(
+        [("system", system_prompt), ("user", "{input}")]
+    )
+
+    # Create the question-answer chain
+    question_answer_chain = create_stuff_documents_chain(ChatGoogleGenerativeAI(model="gemini-pro",google_api_key=key,convert_system_message_to_human=True), prompt)
+    rag_chain = create_retrieval_chain(retriever, question_answer_chain)
+
+    # Ensure the vector dimensions match the FAISS index
+
+    # Invoke the RAG chain
+    answer = rag_chain.invoke(
+        {"input": f"Keywords: {keywords}, Minimum JIF: {jif},Publisher list: {publisher}"}
+    )
+
+    # Inspect the result structure
+    return answer["answer"]
+
+def llama_llm(keywords, jif, publisher):
+    retriever = db.as_retriever()
+    print("Gemini APi KEy: "+key)
+    # Set up system prompt
+    system_prompt = (
+        f"You are a specialized Journal recommender that compares all journals in database to given research paper keywords and based on JIF and publisher gives result."
+        f"From the provided context, recommend all journals that are suitable for research paper with {keywords} keywords."
+        f"Ensure that you include **every** journal with a Journal Impact Factor (JIF) strictly greater than {jif}, and the Journal must be only from any Publishers in list: {publisher}. And Pls show that jif as in Context database "
+        f"Make sure to include both exact matches and related journals, and prioritize including **all relevant high-JIF journals without repetition**. "
+        f"Present the results in a tabular format( no latex code) with the following columns: Journal Name, Publisher, JIF. "
+        f"Ensure no introductory or ending texts are included."
+        "Context: {context}"
+    )
+
+    prompt = ChatPromptTemplate.from_messages(
+        [("system", system_prompt), ("user", "{input}")]
+    )
+
+    # Create the question-answer chain
+    question_answer_chain = create_stuff_documents_chain(ChatGroq(model="llama-3.2-3b-preview", temperature=0), prompt)
+    rag_chain = create_retrieval_chain(retriever, question_answer_chain)
+
+    # Ensure the vector dimensions match the FAISS index
+
+    # Invoke the RAG chain
+    answer = rag_chain.invoke(
+        {"input": f"Keywords: {keywords}, Minimum JIF: {jif},Publisher list: {publisher}"}
+    )
+
+    # Inspect the result structure
+    return answer["answer"]
+
+def mixtral_llm(keywords, jif, publisher):
+    retriever = db.as_retriever()
+    print("Gemini APi KEy: "+key)
+    # Set up system prompt
+    system_prompt = (
+        f"You are a specialized Journal recommender that compares all journals in database to given research paper keywords and based on JIF and publisher gives result."
+        f"From the provided context, recommend all journals that are suitable for research paper with {keywords} keywords."
+        f"Ensure that you include **every** journal with a Journal Impact Factor (JIF) strictly greater than {jif}, and the Journal must be only from any Publishers in list: {publisher}. And Pls show that jif as in Context database "
+        f"Make sure to include both exact matches and related journals, and prioritize including **all relevant high-JIF journals**. "
+        f"Present the results in a tabular format( no latex code) with the following columns: Journal Name, Publisher, JIF. "
+        f"Ensure no introductory or ending texts are included."
+        "Context: {context}"
+    )
+
+    prompt = ChatPromptTemplate.from_messages(
+        [("system", system_prompt), ("user", "{input}")]
+    )
+
+    # Create the question-answer chain
+    question_answer_chain = create_stuff_documents_chain(ChatGroq(model="mixtral-8x7b-32768",temperature=0), prompt)
+    rag_chain = create_retrieval_chain(retriever, question_answer_chain)
+
+    # Ensure the vector dimensions match the FAISS index
+
+    # Invoke the RAG chain
+    answer = rag_chain.invoke(
+        {"input": f"Keywords: {keywords}, Minimum JIF: {jif},Publisher list: {publisher}"}
+    )
+
+    # Inspect the result structure
+    return answer["answer"]
 
 def faiss_search(keywords, jif, publisher):
     # Initialize the embeddings model
@@ -359,7 +454,7 @@ def main():
 
     # Search Method
     search_method = st.sidebar.selectbox(
-        "Choose search method:", ("FAISS Search", "OpenAI LLM")
+        "Choose search method:", ("FAISS Search", "OpenAI LLM", "Gemini LLM","LLAMA-3.2 LLM","Mixtral AI")
     )
 
     # Input for Document
@@ -396,7 +491,12 @@ def main():
                     results = openai_llm(
                         cleaned_keywords1, impact_factor, selected_publishers_str
                     )
-
+                elif search_method == "Gemini LLM":
+                    results = gemini_llm(cleaned_keywords1, impact_factor, selected_publishers_str)
+                elif search_method == "LLAMA-3.2 LLM":
+                    results = llama_llm(cleaned_keywords1, impact_factor, selected_publishers_str)
+                elif search_method == "Mixtral AI":
+                    results = mixtral_llm(cleaned_keywords1, impact_factor, selected_publishers_str)
                 lines = results.strip().split("\n")
 
                 # Extract headers and rows
@@ -423,7 +523,12 @@ def main():
                 st.write("FAISS Search Results:")
             elif search_method == "OpenAI LLM":
                 st.write("OpenAI LLM Results:")
-                
+            elif search_method == "Gemini LLM":
+                st.write("Gemini LLM Results:")
+            elif search_method == "LLAMA3.2 LLM":
+                st.write("LLAMA 3.2 LLM Results:")
+            elif search_method == "Mixtral AI":
+                st.write("Mixtral AI Results:")
             check = False
             for rank, journal in enumerate(journals, start=1):
                 if journal and isinstance(journal, dict):  # Ensure journal is a non-empty dictionary
