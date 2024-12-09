@@ -274,37 +274,50 @@ def faiss_search(keywords, jif, publisher):
 
     # Process each entry
     for entry in entries:
-        # Use regex to capture different fields
+    # Use regex to capture different fields
         name = re.search(r"Name: (.+)", entry)
         jif_match = re.search(r"JIF: (.+)", entry)
         category = re.search(r"Category: (.+)", entry)
         keywords_match = re.search(r"Keywords: (.+)", entry)
         publisher_match = re.search(r"Publisher: (.+)", entry)
         first_decision_match = re.search(r"Decsion Time: (.+)", entry)
-        # Filter based on JIF and Publisher
-        if jif_match and float(jif_match.group(1)) >= min_jif:
-            # If valid publishers are provided, check if the publisher matches
-            if (
-                valid_publishers is None
-                or (publisher_match and publisher_match.group(1) in valid_publishers)
-            ):
-                try:
-                    keywords_list = (
-                        json.loads(keywords_match.group(1)) if keywords_match else []
-                    )
-                except json.JSONDecodeError:
-                    keywords_list = []  # Fallback if JSON decoding fails
 
-                data.append(
-                    {
-                        "Name": name.group(1) if name else None,
-                        "JIF": float(jif_match.group(1)) if jif_match else None,
-                        "Category": category.group(1) if category else None,
-                        "Keywords": keywords_list,
-                        "Publisher": publisher_match.group(1) if publisher_match else None,
-                        "Decision Time": first_decision_match.group(1) if first_decision_match else None,
-                    }
-                )
+    # Filter based on JIF and Publisher
+        if jif_match:
+            try:
+                # Extract numeric JIF value, handling cases like "<0.1"
+                jif_value = jif_match.group(1)
+                if jif_value.startswith("<"):
+                    jif_value = jif_value[1:]  # Remove '<'
+                jif_value = float(jif_value)  # Convert to float
+
+                if jif_value >= min_jif:
+                    # If valid publishers are provided, check if the publisher matches
+                    if (
+                        valid_publishers is None
+                        or (publisher_match and publisher_match.group(1) in valid_publishers)
+                    ):
+                        try:
+                            keywords_list = (
+                                json.loads(keywords_match.group(1)) if keywords_match else []
+                            )
+                        except json.JSONDecodeError:
+                            keywords_list = []  # Fallback if JSON decoding fails
+
+                        data.append(
+                            {
+                                "Name": name.group(1) if name else None,
+                                "JIF": jif_value,
+                                "Category": category.group(1) if category else None,
+                                "Keywords": keywords_list,
+                                "Publisher": publisher_match.group(1) if publisher_match else None,
+                                "Decision Time": first_decision_match.group(1) if first_decision_match else None,
+                            }
+                        )
+            except ValueError:
+                # Skip entries with invalid JIF values
+                continue
+
 
     # Sort the data by JIF in decreasing order
     sorted_data = sorted(data, key=lambda x: x["JIF"], reverse=True)
